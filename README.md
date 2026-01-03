@@ -7,19 +7,30 @@ Look, we all know mobile browsers are a nightmare for streaming. That's why I bu
 ## What's the Deal?
 This app isn't just a basic WebView wrapper. I've spent time fine-tuning the navigation logic to make sure the "Watch Now" button actually works. It deep-links directly into the Vidora player, bypassing all the landing page nonsense.
 
-### The Anime Situation
-Yes, there's an Anime section. Yes, the library is huge. But here is the reality: Anime servers are notoriously finicky. While most movies and mainstream TV shows stream like butter, some anime titles might struggle to find a stable provider. If a source doesn't load, it is usually a server-side issue, not the app. I am working on better provider fallback for the future.
+## IMPORTANT: Read This Before Installing
 
-### Potential Glitches and the Reality
-No software is perfect, and if you are looking for a bug-free utopia, you are in the wrong place. Here is what you might encounter:
-- **UI Flickering**: Occasionally, while entering or exiting the immersive full-screen mode, you might see a brief flicker of the system bars. This is a known behavior with how Android handles window insets and is harmless.
-- **WebView Hangs**: If a provider is serving garbage code or heavy ads, the WebView might hang for a second. If it does, just back out and try a different source.
-- **Navigation Loops**: While I have implemented a navigation lock, some aggressive redirects from third-party players might still try to hijack the view. Just use the physical back button; the app is programmed to prioritize your native experience.
+> [!WARNING]
+> **Network and Provider Issues**
+> This app relies on third-party streaming providers. Expect the following:
+> - **Anime servers are unstable**: Many anime titles may fail to load or buffer poorly. This is a provider issue, not an app bug.
+> - **Regional blocks**: If your ISP or government blocks Vidora providers, you will see "Source Not Found" errors. Use a VPN.
+> - **Provider downtime**: Streaming sources go offline without warning. Try again later or pick a different title.
 
-### Regional Restrictions and The Law
-- **Regional Restrictions**: If your ISP or country has a beef with Vidora's providers, you might see "Source Not Found" or infinite loading. Use a VPN. Don't complain to me if your government blocks the good stuff.
-- **Provider Stability**: Sometimes providers go down. It happens. If it does, try again in an hour.
-- **Device Compatibility**: This app is built for Android 7.0 (Nougat) and up (API 24+). If you are running a potato from 2015, don't expect 4K 120fps. It is optimized for modern mid-to-high-end devices.
+> [!CAUTION]
+> **Known Glitches and Limitations**
+> No software is perfect. Here is what you might encounter:
+> - **UI Flickering**: Brief flashes of system bars when entering/exiting full-screen mode. This is how Android handles window transitions.
+> - **WebView Hangs**: If a provider serves broken code or heavy ads, the player might freeze for a few seconds. Use the back button to exit.
+> - **Navigation Loops**: Aggressive website redirects might try to hijack the player. The physical back button will always return you to the app.
+> - **Screen Wake Issues**: On some devices, the screen might dim during playback. This is a known Android WebView limitation.
+> - **Playback Stalling**: Streams may buffer indefinitely or stall mid-playback due to unstable provider servers. This is NOT a network issue on your end—it is the streaming source failing. Close and reopen the player to retry.
+> - **Stream Restart from 0:00**: Some providers do not preserve playback position. If you exit and return to a video, it may restart from the beginning instead of resuming where you left off. This is a provider limitation, not an app bug.
+
+> [!NOTE]
+> **Device Requirements**
+> - **Minimum OS**: Android 7.0 (Nougat) and up (API 24+)
+> - **Recommended**: Modern mid-to-high-end devices for smooth 1080p+ playback
+> - **Architecture**: Supports arm64-v8a, armeabi-v7a, x86, and x86_64
 
 ## Why this app slaps
 - **Material 3 Excellence**: Built with Jetpack Compose. It looks and feels like a professional subscription app, but it is free.
@@ -27,11 +38,6 @@ No software is perfect, and if you are looking for a bug-free utopia, you are in
 - **Ad-Light Experience**: Integrated basic ad-blocking into the player view to keep the experience as clean as possible.
 - **Immersive Playback**: Status and gesture bars are automatically hidden during video playback for a true full-screen experience.
 - **PiP Mode**: Minimizable player so you can pretend to be productive while watching your shows.
-
-## Hardware Support
-- **Architecture**: Supports arm64-v8a, armeabi-v7a, x86, and x86_64.
-- **Minimum OS**: Android 7.0 (API 24)
-- **Target OS**: Android 14 (API 34)
 
 ## How to use it
 1. Grab the latest APK from the Releases section.
