@@ -1,0 +1,59 @@
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:compressDebugAssets UP-TO-DATE
+> Task :app:desugarDebugFileDependencies UP-TO-DATE
+> Task :app:mergeDebugJniLibFolders UP-TO-DATE
+> Task :app:mergeDebugNativeLibs NO-SOURCE
+> Task :app:stripDebugDebugSymbols NO-SOURCE
+> Task :app:validateSigningDebug UP-TO-DATE
+> Task :app:writeDebugAppMetadata UP-TO-DATE
+> Task :app:writeDebugSigningConfigVersions UP-TO-DATE
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeLibDexDebug UP-TO-DATE
+> Task :app:mergeDebugResources
+> Task :app:processDebugResources
+> Task :app:mergeExtDexDebug
+> Task :app:kaptGenerateStubsDebugKotlin
+> Task :app:kaptDebugKotlin
+
+> Task :app:compileDebugKotlin
+w: file:///D:/waste/vidora_app/app/src/main/java/com/vidora/app/MainActivity.kt:77:41 Variable 'url' is never used
+w: file:///D:/waste/vidora_app/app/src/main/java/com/vidora/app/ui/screens/SearchScreen.kt:44:40 'textFieldColors(Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., TextSelectionColors = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ..., Color = ...): TextFieldColors' is deprecated. Renamed to `TextFieldDefaults.colors` with additional parameters to controlcontainer color based on state.
+
+> Task :app:compileDebugJavaWithJavac
+
+> Task :app:hiltAggregateDepsDebug
+WARNING: [Processor] Library 'C:\Users\punee\.gradle\caches\transforms-3\a0ac8238fc5f1b1ccdd434880f731767\transformed\core-1.12.0-api.jar' contains references to both AndroidX and old support library. This seems like the library is partially migrated. Jetifier will try to rewrite the library anyway.
+ Example of androidX reference: 'androidx/core/os/BuildCompat'
+ Example of support library reference: 'android/support/v4/app/INotificationSideChannel$Default'
+
+> Task :app:hiltJavaCompileDebug
+> Task :app:processDebugJavaRes
+> Task :app:transformDebugClassesWithAsm
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugJavaResource
+> Task :app:mergeDebugGlobalSynthetics
+> Task :app:mergeProjectDexDebug
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 1m 19s
+38 actionable tasks: 21 executed, 17 up-to-date
