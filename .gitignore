@@ -1,19 +1,49 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizard.settings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+# Android
+*.apk
+*.ap_
+*.aab
+*.dex
+*.class
+
+# Build
+/build/
+/app/build/
+/*/build/
+.gradle/
 local.properties
 
-# Build logs
-build_log*.txt
+# IDE
+.idea/
+*.iml
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Gradle
+.gradle
+gradle-app.setting
+!gradle-wrapper.jar
+!gradle-wrapper.properties
+
+# Local configuration
+local.properties
+
+# Log Files
 *.log
+
+# Android Studio
+captures/
+.externalNativeBuild
+.cxx
+
+# Keystore
+*.jks
+*.keystore
+
+# Google Services
+google-services.json
+
+# Misc
+.navigation/
+output.json

@@ -1,50 +1,122 @@
-# Vidora Streaming APP
-
-Look, we all know mobile browsers are a nightmare for streaming. That's why I built Vidora Streaming. It is a premium, native Android experience for the Vidora ecosystem. No fluff, no clunky tabs—just you and your content.
-
-![Vidora Icon](app/src/main/res/mipmap-xxxhdpi/ic_launcher.png)
-
-## What's the Deal?
-This app isn't just a basic WebView wrapper. I've spent time fine-tuning the navigation logic to make sure the "Watch Now" button actually works. It deep-links directly into the Vidora player, bypassing all the landing page nonsense.
-
-## IMPORTANT: Read This Before Installing
-
-> [!WARNING]
-> **Network and Provider Issues**
-> This app relies on third-party streaming providers. Expect the following:
-> - **Anime servers are unstable**: Many anime titles may fail to load or buffer poorly. This is a provider issue, not an app bug.
-> - **Regional blocks**: If your ISP or government blocks Vidora providers, you will see "Source Not Found" errors. Use a VPN.
-> - **Provider downtime**: Streaming sources go offline without warning. Try again later or pick a different title.
+# Pocket Nexus - Streaming App
 
 > [!CAUTION]
-> **Known Glitches and Limitations**
-> No software is perfect. Here is what you might encounter:
-> - **UI Flickering**: Brief flashes of system bars when entering/exiting full-screen mode. This is how Android handles window transitions.
-> - **WebView Hangs**: If a provider serves broken code or heavy ads, the player might freeze for a few seconds. Use the back button to exit.
-> - **Navigation Loops**: Aggressive website redirects might try to hijack the player. The physical back button will always return you to the app.
-> - **Screen Wake Issues**: On some devices, the screen might dim during playback. This is a known Android WebView limitation.
-> - **Playback Stalling**: Streams may buffer indefinitely or stall mid-playback due to unstable provider servers. This is NOT a network issue on your end—it is the streaming source failing. Close and reopen the player to retry.
-> - **Stream Restart from 0:00**: Some providers do not preserve playback position. If you exit and return to a video, it may restart from the beginning instead of resuming where you left off. This is a provider limitation, not an app bug.
-
-> [!NOTE]
-> **Device Requirements**
-> - **Minimum OS**: Android 7.0 (Nougat) and up (API 24+)
-> - **Recommended**: Modern mid-to-high-end devices for smooth 1080p+ playback
-> - **Architecture**: Supports arm64-v8a, armeabi-v7a, x86, and x86_64
-
-## Why this app slaps
-- **Material 3 Excellence**: Built with Jetpack Compose. It looks and feels like a professional subscription app, but it is free.
-- **Smart Navigation**: TV shows automatically default to Season 1, Episode 1 if you are lazy.
-- **Ad-Light Experience**: Integrated basic ad-blocking into the player view to keep the experience as clean as possible.
-- **Immersive Playback**: Status and gesture bars are automatically hidden during video playback for a true full-screen experience.
-- **PiP Mode**: Minimizable player so you can pretend to be productive while watching your shows.
-
-## How to use it
-1. Grab the latest APK from the Releases section.
-2. Sideload it (enable "Install from Unknown Sources").
-3. Search for a show. 
-4. Hit "Watch Now".
-5. Profit.
+> **LEGAL DISCLAIMER - Educational Purpose Only**
+> 
+> This application is developed for **educational and personal use only**. The developer does not own, host, or distribute any content accessible through this application. All media content is streamed from third-party sources over which the developer has no control.
+> 
+> **Users are solely responsible for:**
+> - Ensuring their usage complies with local laws and regulations
+> - Respecting copyright and intellectual property rights
+> - Adhering to the terms of service of content providers
+> 
+> **The developer:**
+> - Does NOT endorse piracy or copyright infringement
+> - Provides this software "as is" without warranties
+> - Is NOT liable for any misuse of this application
 
 ---
-*Built by a human, for humans. Stay Goated.*
+
+## About
+
+Pocket Nexus is a modern Android streaming application built with Jetpack Compose and Material 3. It features a sleek black and purple theme, advanced player controls, and multi-language subtitle support.
+
+## Features
+
+### 🎨 Modern UI/UX
+- **Rich black & purple theme** - Premium, eye-catching design
+- **Material 3 components** - Latest Android design guidelines
+- **Smooth animations** - Polished user experience
+- **Dark mode optimized** - Easy on the eyes
+
+### 🎬 Advanced Player
+- **Custom subtitle engine** - Native SRT/VTT support with auto-discovery
+- **Gesture controls** - Double-tap to seek, long-press for 2x speed
+- **Rotation lock** - Manual orientation control (Auto/Portrait/Landscape)
+- **Quality selection** - Choose your preferred video quality
+- **Immersive mode** - Full-screen playback with hidden system bars
+
+### 📱 Smart Features
+- **Config-based subtitle discovery** - Automatically finds available subtitles
+- **Multi-language support** - Ready for international content
+- **Lifecycle management** - Pauses playback when app is minimized
+- **Error handling** - Robust retry mechanism with clear error messages
+
+## Screenshots
+
+*Coming soon*
+
+## Installation
+
+### Download APK
+1. Go to [Releases](../../releases)
+2. Download the latest `pocket-nexus-v1.0.0.apk`
+3. Enable "Install from Unknown Sources" in Android settings
+4. Install the APK
+
+### Build from Source
+
+**Prerequisites:**
+- Android Studio Hedgehog or later
+- JDK 17 or later
+- Android SDK 34
+
+**Steps:**
+```bash
+# Clone the repository
+git clone https://github.com/Puneeth-R-140/pocket-nexus-streaming.git
+cd pocket-nexus-streaming
+
+# Build debug APK
+./gradlew assembleDebug
+
+# APK location
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+## Tech Stack
+
+- **Language:** Kotlin
+- **UI:** Jetpack Compose + Material 3
+- **Architecture:** MVVM with Repository pattern
+- **Dependency Injection:** Hilt
+- **Networking:** Retrofit + OkHttp
+- **Database:** Room
+- **Video Player:** ExoPlayer
+- **Image Loading:** Coil
+- **Navigation:** Jetpack Navigation Compose
+
+## Project Structure
+
+```
+app/
+├── src/main/
+│   ├── java/com/vidora/app/
+│   │   ├── data/          # Data layer (repositories, models)
+│   │   ├── ui/            # UI layer (screens, components, viewmodels)
+│   │   ├── player/        # Custom player implementation
+│   │   └── di/            # Dependency injection modules
+│   └── res/               # Resources (layouts, drawables, etc.)
+```
+
+## Contributing
+
+Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## License
+
+This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+
+## Acknowledgments
+
+- Built with [Jetpack Compose](https://developer.android.com/jetpack/compose)
+- Video playback powered by [ExoPlayer](https://github.com/google/ExoPlayer)
+- Icons from [Material Icons](https://fonts.google.com/icons)
+
+## Disclaimer
+
+This is an educational project. The developer is not responsible for any content accessed through this application or any misuse of the software. Users must comply with all applicable laws and respect intellectual property rights.
+
+---
+
+**Made with ❤️ for learning Android development**
