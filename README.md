@@ -1,4 +1,10 @@
-# Pocket Nexus
+# Pocket Nexus v1.1.0 
+> [!IMPORTANT]
+> **FRESH INSTALLATION REQUIRED**
+> Since I have added new signing keys and major feature updates, please **uninstall the old version** completely before installing this update. 
+> 1. Long press the existing app icon -> Uninstall
+> 2. Install the new APK
+> 3. Enjoy the new features!
 
 **LEGAL DISCLAIMER:** This is an educational project. I don't own or host any of the content accessible through this app. Everything is streamed from third-party sources that I have no control over. Use this responsibly and make sure you're following your local laws and respecting copyright. I'm not responsible for how you use this.
 
@@ -8,35 +14,46 @@ A streaming app I built while learning Android development. Started as a simple 
 
 ## Features
 
-**Player Stuff:**
-- Double-tap left/right sides to seek backward/forward 10 seconds
-- Long-press anywhere to play at 2x speed
-- Rotation lock button (Auto/Portrait/Landscape modes)
-- Quality selection
-- Full-screen immersive mode
+**Player Controls:**
+- **Center area:** Tap to show/hide controls, access play/pause, seek bar, and +10/-10 buttons
+- **Left side gestures:**
+  - Double-tap to seek backward 10 seconds
+  - Swipe up/down to adjust screen brightness
+  - Long-press for 2x playback speed
+- **Right side gestures:**
+  - Double-tap to seek forward 10 seconds
+  - Swipe up/down to adjust volume
+  - Long-press for 2x playback speed
+- **Rotation lock:** Auto/Portrait/Landscape modes
+- **Quality selection:** Choose video quality
+- **Full-screen:** Video zooms to fill entire screen (no black bars)
+- **Auto-hide controls:** Controls disappear after 3 seconds of inactivity
+- **Immersive mode:** Full-screen without system bars
 
-**Subtitles:**
-- Automatic subtitle discovery from player configs
-- Supports SRT and VTT formats
-- Multi-language support (currently works best with English)
-- Custom subtitle parser and renderer
+**Subtitles (NEW!):**
+- **Instant subtitle loading:** 50+ languages available immediately using `sub.wyzie.ru` API
+- **Proactive fetching:** Subtitles are fetched and ready before you even click play
+- **Works mid-stream:** Select subtitles anytime during playback - they appear instantly
+- **Multi-language support:** English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, Hindi, Chinese, Arabic, and many more
+- **Multiple formats:** Supports SRT and VTT subtitle formats
+- **Hearing impaired options:** HI/SDH and regular subtitles available
 
 **UI:**
-- Black and purple theme
-- Material 3 design
-- Smooth animations
+- Material 3 design with black and purple theme
+- Smooth animations and transitions
 - Dark mode optimized
+- Auto-hiding floating controls
 
-**Other:**
-- Gesture controls only on edges so player controls still work
-- Pauses playback when you minimize the app
-- Error handling with retry option
+**Technical:**
+- Clean API-based subtitle integration (removed legacy WebView polling)
+- Optimized gesture zones (70% height) - seek bar always clickable
+- Synced control visibility (floating buttons + ExoPlayer controls)
+- Persistent playback state on minimize/restore
 
 ## Known Issues
 
-- Subtitle sync can be off on some streams (working on manual offset controls)
-- Subtitle discovery takes a few seconds sometimes
-- Some older devices might struggle with 2x playback speed
+- Some streams may have limited subtitle availability (depends on source)
+- Subtitle selection requires network connectivity
 
 ## Installation
 

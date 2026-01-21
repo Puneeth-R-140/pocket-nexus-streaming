@@ -41,4 +41,15 @@ object NetworkModule {
             .build()
             .create(TmdbService::class.java)
     }
+
+    @Provides
+    @Singleton
+    fun provideSubtitleService(okHttpClient: OkHttpClient): com.vidora.app.data.remote.SubtitleService {
+        return Retrofit.Builder()
+            .baseUrl("https://sub.wyzie.ru/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(com.vidora.app.data.remote.SubtitleService::class.java)
+    }
 }

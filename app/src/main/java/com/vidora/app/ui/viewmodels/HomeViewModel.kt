@@ -10,6 +10,7 @@ import com.vidora.app.util.NetworkResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import javax.inject.Inject
 
 data class HomeUiState(
@@ -52,50 +53,43 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, canRetry = false) }
             
-            // Collect movies
-            repository.getTrendingMovies().collect { result ->
-                when (result) {
-                    is NetworkResult.Loading -> {
-                        _uiState.update { it.copy(isLoading = true) }
-                    }
-                    is NetworkResult.Success -> {
-                        _uiState.update { it.copy(trendingMovies = result.data) }
-                        
-                        // Now fetch TV shows
-                        repository.getTrendingTVShows().collect { tvResult ->
-                            when (tvResult) {
-                                is NetworkResult.Success -> {
-                                    _uiState.update { 
-                                        it.copy(
-                                            popularShows = tvResult.data,
-                                            isLoading = false,
-                                            error = null
-                                        )
-                                    }
-                                }
-                                is NetworkResult.Error -> {
-                                    _uiState.update { 
-                                        it.copy(
-                                            isLoading = false,
-                                            error = tvResult.message,
-                                            canRetry = true
-                                        )
-                                    }
-                                }
-                                is NetworkResult.Loading -> {}
-                            }
-                        }
-                    }
-                    is NetworkResult.Error -> {
-                        _uiState.update { 
-                            it.copy(
-                                isLoading = false,
-                                error = result.message,
-                                canRetry = true
-                            )
-                        }
-                    }
+            // Launch both requests in parallel using async
+            val moviesDeferred = async {
+                var moviesResult: NetworkResult<List<MediaItem>>? = null
+                repository.getTrendingMovies().collect { result ->
+                    moviesResult = result
                 }
+                moviesResult
+            }
+            
+            val tvShowsDeferred = async {
+                var tvResult: NetworkResult<List<MediaItem>>? = null
+                repository.getTrendingTVShows().collect { result ->
+                    tvResult = result
+                }
+                tvResult
+            }
+            
+            // Wait for both to complete
+            val moviesResult = moviesDeferred.await()
+            val tvResult = tvShowsDeferred.await()
+            
+            // Update UI based on results
+            val hasError = moviesResult is NetworkResult.Error || tvResult is NetworkResult.Error
+            val errorMessage = when {
+                moviesResult is NetworkResult.Error -> moviesResult.message
+                tvResult is NetworkResult.Error -> tvResult.message
+                else -> null
+            }
+            
+            _uiState.update {
+                it.copy(
+                    trendingMovies = if (moviesResult is NetworkResult.Success) moviesResult.data else emptyList(),
+                    popularShows = if (tvResult is NetworkResult.Success) tvResult.data else emptyList(),
+                    isLoading = false,
+                    error = errorMessage,
+                    canRetry = hasError
+                )
             }
         }
     }

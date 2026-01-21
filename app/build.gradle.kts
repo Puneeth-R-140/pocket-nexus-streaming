@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -13,12 +16,30 @@ android {
         applicationId = "com.vidora.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary = true
+        }
+    }
+
+    signingConfigs {
+        create("release") {
+            val keystoreFile = rootProject.file("keystore.properties")
+            if (keystoreFile.exists()) {
+                val props = Properties()
+                props.load(FileInputStream(keystoreFile))
+                
+                storeFile = rootProject.file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+                
+                enableV1Signing = true
+                enableV2Signing = true
+            }
         }
     }
 
@@ -30,6 +51,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {

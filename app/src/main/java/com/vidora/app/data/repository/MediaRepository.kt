@@ -14,6 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class MediaRepository @Inject constructor(
     private val tmdbService: TmdbService,
+    private val subtitleService: com.vidora.app.data.remote.SubtitleService,
     private val mediaDao: MediaDao
 ) {
     fun getTrendingMovies(): Flow<NetworkResult<List<MediaItem>>> = flow {
@@ -63,6 +64,18 @@ class MediaRepository @Inject constructor(
             tmdbService.getSeasonEpisodes(tvId, season).episodes
         }
         emit(result)
+    }
+
+    suspend fun getSubtitles(tmdbId: String, mediaType: String, season: Int? = null, episode: Int? = null): List<com.vidora.app.data.remote.SubtitleItem> {
+        return try {
+            if (mediaType == "tv" && season != null && episode != null) {
+                subtitleService.searchSubtitles(tmdbId, season, episode)
+            } else {
+                subtitleService.searchSubtitles(tmdbId)
+            }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     // Local Favorites

@@ -8,20 +8,27 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -47,8 +54,15 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import android.net.Uri
+import com.google.android.exoplayer2.util.MimeTypes
 import org.json.JSONArray
 import org.json.JSONObject
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+import com.vidora.app.data.repository.MediaRepository
 
 private const val TAG = "NativePlayer"
 
@@ -58,12 +72,26 @@ data class VideoQuality(
     val index: Int
 )
 
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface NativePlayerEntryPoint {
+    fun repository(): MediaRepository
+}
+
 @Composable
 fun NativePlayerScreen(
     media: VidoraMediaItem,
     playerUrl: String,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val entryPoint = remember {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            NativePlayerEntryPoint::class.java
+        )
+    }
+    val repository = remember { entryPoint.repository() }
     var state by remember { mutableStateOf<PlayerState>(PlayerState.Loading("Initializing player...")) }
     var extractedUrl by remember { mutableStateOf<String?>(null) }
     var showQualityDialog by remember { mutableStateOf(false) }
@@ -72,47 +100,46 @@ fun NativePlayerScreen(
     var selectedQuality by remember { mutableStateOf<VideoQuality?>(null) }
     var exoPlayerInstance by remember { mutableStateOf<ExoPlayer?>(null) }
     val detectedSubtitles = remember { mutableStateMapOf<String, SubtitleTrack>() }
-    var currentSubtitleCues by remember { mutableStateOf<List<SubtitleCue>>(emptyList()) }
-    var activeSubtitleTrack by remember { mutableStateOf<SubtitleTrack?>(null) }
     var webViewKey by remember { mutableStateOf(0) } // For forcing WebView recreation on retry
     
+    
     val scope = rememberCoroutineScope()
-    val okHttpClient = remember { OkHttpClient() }
-    val subtitleParser = remember { SubtitleParser() }
-
-    // Fetch subtitles when track changes
-    LaunchedEffect(activeSubtitleTrack) {
-        val track = activeSubtitleTrack
-        if (track != null) {
-            scope.launch {
-                try {
-                    val content = withContext(Dispatchers.IO) {
-                        try {
-                            val request = Request.Builder().url(track.url).build()
-                            okHttpClient.newCall(request).execute().use { response ->
-                                response.body?.string() ?: ""
-                            }
-                        } catch (e: Exception) { 
-                            Log.e(TAG, "Failed to fetch subtitle: ${track.url}", e)
-                            ""
-                        }
-                    }
-                    if (content.isNotEmpty()) {
-                        currentSubtitleCues = subtitleParser.parse(content, track.url.contains(".vtt") || content.startsWith("WEBVTT"))
-                        Log.d(TAG, "Loaded ${currentSubtitleCues.size} subtitle cues for ${track.label}")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing subtitles", e)
-                }
-            }
+    
+    // Extract season and episode from URL for TV shows
+    val (season, episode) = remember(playerUrl, media.realMediaType) {
+        if (media.realMediaType == "tv") {
+            extractSeasonEpisodeFromUrl(playerUrl)
         } else {
-            currentSubtitleCues = emptyList()
+            null to null
         }
     }
     
-    // Timeout tracking with extended duration
+    // Proactively fetch subtitles from API
+    LaunchedEffect(media.id, season, episode) {
+        Log.d(TAG, "Fetching subtitles for TMDB ID: ${media.id}, Season: $season, Episode: $episode")
+        try {
+            val subtitles = repository.getSubtitles(media.id, media.realMediaType, season, episode)
+            Log.d(TAG, "Fetched ${subtitles.size} subtitles from API")
+            
+            subtitles.forEach { subtitle ->
+                val trackKey = subtitle.language
+                if (!detectedSubtitles.containsKey(trackKey)) {
+                    detectedSubtitles[trackKey] = SubtitleTrack(
+                        language = subtitle.language,
+                        label = subtitle.display,
+                        url = subtitle.url
+                    )
+                    Log.d(TAG, "Added subtitle: ${subtitle.display} (${subtitle.language})")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching subtitles: ${e.message}", e)
+        }
+    }
+    
+    // Timeout tracking with optimized duration
     LaunchedEffect(webViewKey) {
-        delay(30000) // 30 seconds
+        delay(15000) // 15 seconds (reduced from 30s for faster feedback)
         if (state is PlayerState.Loading) {
             state = PlayerState.Error("Stream extraction timed out. The website may be blocking automated access.")
         }
@@ -123,8 +150,6 @@ fun NativePlayerScreen(
         Log.d(TAG, "Retrying stream extraction...")
         extractedUrl = null
         detectedSubtitles.clear()
-        currentSubtitleCues = emptyList()
-        activeSubtitleTrack = null
         webViewKey++ // Force WebView recreation
         state = PlayerState.Loading("Retrying stream extraction...")
     }
@@ -155,165 +180,6 @@ fun NativePlayerScreen(
                                 override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     Log.d(TAG, "Page finished loading: ${url}")
-                                    
-                                    // CONFIG-BASED subtitle discovery - extracts from player config immediately
-                                    val script = """
-                                        (function() {
-                                            console.log('[PN] Starting config-based subtitle discovery...');
-                                            let foundTracks = new Set();
-                                            
-                                            function reportTrack(lang, label, url) {
-                                                const key = lang + '|' + url;
-                                                if (!foundTracks.has(key) && url) {
-                                                    foundTracks.add(key);
-                                                    console.log('[PN] Found subtitle:', lang, label, url);
-                                                    try {
-                                                        AndroidSubtitles.onSubtitleFound(lang, label, url);
-                                                    } catch(e) {
-                                                        console.error('[PN] Error reporting subtitle:', e);
-                                                    }
-                                                }
-                                            }
-                                            
-                                            function deepSearchConfig(obj, depth = 0, maxDepth = 5) {
-                                                if (depth > maxDepth || !obj || typeof obj !== 'object') return;
-                                                
-                                                // Look for tracks/subtitles/captions arrays
-                                                const trackKeys = ['tracks', 'subtitles', 'captions', 'textTracks', 'subs'];
-                                                for (const key of trackKeys) {
-                                                    if (obj[key] && Array.isArray(obj[key])) {
-                                                        console.log('[PN] Found tracks array at:', key);
-                                                        obj[key].forEach(track => {
-                                                            const url = track.file || track.src || track.url;
-                                                            const lang = track.language || track.lang || track.srclang || 'unknown';
-                                                            const label = track.label || track.name || lang.toUpperCase();
-                                                            if (url) {
-                                                                reportTrack(lang, label, url);
-                                                            }
-                                                        });
-                                                    }
-                                                }
-                                                
-                                                // Recursively search nested objects
-                                                for (const key in obj) {
-                                                    if (obj.hasOwnProperty(key) && typeof obj[key] === 'object') {
-                                                        deepSearchConfig(obj[key], depth + 1, maxDepth);
-                                                    }
-                                                }
-                                            }
-                                            
-                                            function extractSubtitles() {
-                                                console.log('[PN] Scanning for player configurations...');
-                                                
-                                                // Method 1: Check window.player and variants
-                                                const playerVars = ['player', 'videoPlayer', 'jwplayer', 'videojs', 'plyr', 'Player'];
-                                                for (const varName of playerVars) {
-                                                    if (window[varName]) {
-                                                        console.log('[PN] Found window.' + varName);
-                                                        
-                                                        // Check if it's a function (like jwplayer())
-                                                        if (typeof window[varName] === 'function') {
-                                                            try {
-                                                                const playerInstance = window[varName]();
-                                                                if (playerInstance) {
-                                                                    deepSearchConfig(playerInstance);
-                                                                    
-                                                                    // JWPlayer specific
-                                                                    if (playerInstance.getConfig) {
-                                                                        deepSearchConfig(playerInstance.getConfig());
-                                                                    }
-                                                                    if (playerInstance.getCaptionsList) {
-                                                                        const caps = playerInstance.getCaptionsList();
-                                                                        console.log('[PN] JWPlayer captions:', caps);
-                                                                    }
-                                                                }
-                                                            } catch(e) {
-                                                                console.log('[PN] Error calling ' + varName + '():', e);
-                                                            }
-                                                        } else {
-                                                            // It's an object, search it
-                                                            deepSearchConfig(window[varName]);
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                // Method 2: Check common config object names
-                                                const configVars = ['playerConfig', 'config', 'videoConfig', 'setup', 'options', 'settings'];
-                                                for (const varName of configVars) {
-                                                    if (window[varName]) {
-                                                        console.log('[PN] Found window.' + varName);
-                                                        deepSearchConfig(window[varName]);
-                                                    }
-                                                }
-                                                
-                                                // Method 3: Parse script tags for embedded config
-                                                document.querySelectorAll('script').forEach(script => {
-                                                    const content = script.textContent || script.innerHTML;
-                                                    
-                                                    // Look for common patterns
-                                                    const patterns = [
-                                                        /tracks\s*:\s*\[(.*?)\]/gs,
-                                                        /subtitles\s*:\s*\[(.*?)\]/gs,
-                                                        /captions\s*:\s*\[(.*?)\]/gs
-                                                    ];
-                                                    
-                                                    for (const pattern of patterns) {
-                                                        const matches = content.match(pattern);
-                                                        if (matches) {
-                                                            console.log('[PN] Found tracks in script tag');
-                                                            // Try to parse as JSON
-                                                            try {
-                                                                const jsonStr = '{' + matches[0] + '}';
-                                                                const parsed = eval('(' + jsonStr + ')');
-                                                                deepSearchConfig(parsed);
-                                                            } catch(e) {
-                                                                console.log('[PN] Could not parse script config:', e);
-                                                            }
-                                                        }
-                                                    }
-                                                });
-                                                
-                                                // Method 4: Check HTML5 video elements (immediate)
-                                                document.querySelectorAll('video').forEach(video => {
-                                                    video.querySelectorAll('track').forEach(track => {
-                                                        if (track.src) {
-                                                            reportTrack(
-                                                                track.srclang || 'unknown',
-                                                                track.label || track.srclang || 'Unknown',
-                                                                track.src
-                                                            );
-                                                        }
-                                                    });
-                                                });
-                                                
-                                                // Method 5: Check data attributes
-                                                document.querySelectorAll('[data-setup], [data-config], [data-player]').forEach(el => {
-                                                    const dataAttrs = ['data-setup', 'data-config', 'data-player'];
-                                                    for (const attr of dataAttrs) {
-                                                        const data = el.getAttribute(attr);
-                                                        if (data) {
-                                                            try {
-                                                                const config = JSON.parse(data);
-                                                                deepSearchConfig(config);
-                                                            } catch(e) {}
-                                                        }
-                                                    }
-                                                });
-                                                
-                                                console.log('[PN] Config scan complete. Found:', foundTracks.size, 'tracks');
-                                            }
-                                            
-                                            // Run immediately
-                                            extractSubtitles();
-                                            
-                                            // Also run after a short delay in case config loads dynamically
-                                            setTimeout(extractSubtitles, 1000);
-                                            setTimeout(extractSubtitles, 2000);
-                                            setTimeout(extractSubtitles, 3000);
-                                        })();
-                                    """.trimIndent()
-                                    
-                                    view?.evaluateJavascript(script, null)
                                 }
 
                                 override fun shouldInterceptRequest(
@@ -331,86 +197,20 @@ fun NativePlayerScreen(
                                             try {
                                                 val parser = HlsManifestParser()
                                                 val streamInfo = parser.parseManifest(url)
-                                                Log.d(TAG, "Parsed manifest, found ${streamInfo.subtitles.size} subtitle tracks")
+                                                Log.d(TAG, "Stream ready, ${detectedSubtitles.size} subtitles available from API")
                                                 
-                                                // Merge with detected subtitles
-                                                val mergedSubs = (streamInfo.subtitles + detectedSubtitles.values).distinctBy { it.url }
-                                                Log.d(TAG, "Total subtitles after merge: ${mergedSubs.size}")
-                                                
-                                                state = PlayerState.Playing(streamInfo.copy(subtitles = mergedSubs))
+                                                // Use only API-fetched subtitles
+                                                state = PlayerState.Playing(streamInfo.copy(subtitles = detectedSubtitles.values.toList()))
                                             } catch (e: Exception) {
                                                 Log.e(TAG, "Failed to parse manifest, using raw URL", e)
                                                 state = PlayerState.Playing(StreamInfo(url, detectedSubtitles.values.toList()))
                                             }
                                         }
                                     }
-
-                                    // AGGRESSIVE SUBTITLE INTERCEPTION
-                                    
-                                    // 1. Intercept sub.wyzie.ru URLs
-                                    if (url.contains("sub.wyzie.ru")) {
-                                        Log.d(TAG, "Intercepted sub.wyzie.ru: $url")
-                                        
-                                        // Extract language from URL or use ID
-                                        val lang = when {
-                                            url.contains("lang=") -> url.substringAfter("lang=").substringBefore("&")
-                                            url.contains("/id/") -> {
-                                                // Use the ID as a unique identifier
-                                                val id = url.substringAfter("/id/").substringBefore("?")
-                                                "track_$id"
-                                            }
-                                            else -> "unknown_${detectedSubtitles.size}"
-                                        }
-                                        
-                                        // Try to determine format
-                                        val format = when {
-                                            url.contains("format=srt") -> "SRT"
-                                            url.contains("format=vtt") -> "VTT"
-                                            url.contains(".srt") -> "SRT"
-                                            url.contains(".vtt") -> "VTT"
-                                            else -> "SUB"
-                                        }
-                                        
-                                        val label = "$format - ${lang.uppercase()}"
-                                        detectedSubtitles[lang] = SubtitleTrack(lang, label, url)
-                                        Log.d(TAG, "Added subtitle track: $label")
-                                    }
-                                    
-                                    // 2. Intercept .vtt files
-                                    if (url.endsWith(".vtt") || url.contains(".vtt?")) {
-                                        Log.d(TAG, "Intercepted VTT: $url")
-                                        val lang = extractLanguageFromUrl(url)
-                                        detectedSubtitles[lang] = SubtitleTrack(lang, "VTT - ${lang.uppercase()}", url)
-                                    }
-                                    
-                                    // 3. Intercept .srt files
-                                    if (url.endsWith(".srt") || url.contains(".srt?")) {
-                                        Log.d(TAG, "Intercepted SRT: $url")
-                                        val lang = extractLanguageFromUrl(url)
-                                        detectedSubtitles[lang] = SubtitleTrack(lang, "SRT - ${lang.uppercase()}", url)
-                                    }
-                                    
-                                    // 4. Intercept blob URLs (these are tricky, just log them)
-                                    if (url.startsWith("blob:")) {
-                                        Log.d(TAG, "Detected blob URL (cannot intercept): $url")
-                                    }
                                     
                                     return super.shouldInterceptRequest(view, request)
                                 }
                             }
-                            
-                            // Add JavaScript interface for subtitle reporting
-                            addJavascriptInterface(object {
-                                @android.webkit.JavascriptInterface
-                                fun onSubtitleFound(language: String, label: String, url: String) {
-                                    scope.launch {
-                                        if (url.isNotEmpty()) {
-                                            Log.d(TAG, "JS reported subtitle: $language - $label - $url")
-                                            detectedSubtitles[language] = SubtitleTrack(language, label, url)
-                                        }
-                                    }
-                                }
-                            }, "AndroidSubtitles")
                             
                             loadUrl(playerUrl)
                         }
@@ -432,7 +232,6 @@ fun NativePlayerScreen(
                     },
                     onShowQualityDialog = { showQualityDialog = true },
                     onShowSubtitleDialog = { showSubtitleDialog = true },
-                    currentSubtitleCues = currentSubtitleCues,
                     detectedSubtitles = detectedSubtitles.values.toList()
                 )
             }
@@ -458,36 +257,116 @@ fun NativePlayerScreen(
         if (showSubtitleDialog) {
             SubtitleSelectionDialog(
                 tracks = detectedSubtitles.values.toList(),
-                activeTrack = activeSubtitleTrack,
-                onSubtitleSelected = { track ->
-                    activeSubtitleTrack = track
-                    showSubtitleDialog = false
-                },
+                exoPlayer = exoPlayerInstance,
                 onDismiss = { showSubtitleDialog = false }
             )
         }
     }
 }
 
+// Helper function to normalize language codes (eng -> en, spa -> es, etc.)
+private fun normalizeLanguageCode(code: String): String {
+    val normalized = code.lowercase().trim()
+    return when (normalized) {
+        "eng", "english" -> "en"
+        "spa", "spanish" -> "es"
+        "fra", "fre", "french" -> "fr"
+        "deu", "ger", "german" -> "de"
+        "ita", "italian" -> "it"
+        "por", "portuguese" -> "pt"
+        "rus", "russian" -> "ru"
+        "jpn", "japanese" -> "ja"
+        "kor", "korean" -> "ko"
+        "zho", "chi", "chinese" -> "zh"
+        "ara", "arabic" -> "ar"
+        "hin", "hindi" -> "hi"
+        "ind", "indonesian" -> "id"
+        "tur", "turkish" -> "tr"
+        "pol", "polish" -> "pl"
+        "ukr", "ukrainian" -> "uk"
+        "vie", "vietnamese" -> "vi"
+        "tha", "thai" -> "th"
+        else -> if (normalized.length == 2) normalized else normalized.take(2)
+    }
+}
+
+// Helper function to get display name from language code
+private fun getLanguageDisplayName(code: String): String {
+    val normalized = normalizeLanguageCode(code)
+    return when (normalized) {
+        "en" -> "English"
+        "es" -> "Spanish"
+        "fr" -> "French"
+        "de" -> "German"
+        "it" -> "Italian"
+        "pt" -> "Portuguese"
+        "ru" -> "Russian"
+        "ja" -> "Japanese"
+        "ko" -> "Korean"
+        "zh" -> "Chinese"
+        "ar" -> "Arabic"
+        "hi" -> "Hindi"
+        "id" -> "Indonesian"
+        "tr" -> "Turkish"
+        "pl" -> "Polish"
+        "uk" -> "Ukrainian"
+        "vi" -> "Vietnamese"
+        "th" -> "Thai"
+        else -> code.uppercase()
+    }
+}
+
 // Helper function to extract language from URL
 private fun extractLanguageFromUrl(url: String): String {
-    // Try common patterns
+    // Try common patterns with support for 2-3 letter codes and locales
     val patterns = listOf(
-        Regex("[/_-]([a-z]{2})[._-]"),  // /en. or _en_ or -en-
-        Regex("lang[=:]([a-z]{2})"),     // lang=en or lang:en
-        Regex("/([a-z]{2})/"),           // /en/
-        Regex("\\.([a-z]{2})\\.")          // .en.
+        Regex("[/_-]([a-z]{2,3}(?:-[A-Z]{2})?)[/._-]", RegexOption.IGNORE_CASE),  // /en/ or /eng/ or /en-US/
+        Regex("lang[=:]([a-z]{2,3}(?:-[A-Z]{2})?)", RegexOption.IGNORE_CASE),     // lang=en or lang=eng
+        Regex("\\.([a-z]{2,3})\\.", RegexOption.IGNORE_CASE),                      // .en. or .eng.
+        Regex("/([a-z]{2,3})/", RegexOption.IGNORE_CASE)                           // /en/ or /eng/
     )
     
     for (pattern in patterns) {
-        val match = pattern.find(url.lowercase())
+        val match = pattern.find(url)
         if (match != null) {
-            return match.groupValues[1]
+            val code = match.groupValues[1].split("-")[0] // Extract base code from locale
+            return normalizeLanguageCode(code)
         }
     }
     
-    // If no pattern matches, generate a unique ID
-    return "track_${url.hashCode().toString(16)}"
+    // Check for full language names in URL
+    val urlLower = url.lowercase()
+    return when {
+        urlLower.contains("english") -> "en"
+        urlLower.contains("spanish") -> "es"
+        urlLower.contains("french") -> "fr"
+        urlLower.contains("german") -> "de"
+        urlLower.contains("italian") -> "it"
+        urlLower.contains("portuguese") -> "pt"
+        urlLower.contains("russian") -> "ru"
+        urlLower.contains("japanese") -> "ja"
+        urlLower.contains("korean") -> "ko"
+        urlLower.contains("hindi") -> "hi"
+        urlLower.contains("chinese") -> "zh"
+        else -> "unknown" // Will be filtered out or labeled generically
+    }
+}
+
+// Helper function to extract season and episode from provider URL
+// URL pattern: https://watch.vidora.su/watch/tv/{id}/{season}/{episode}
+private fun extractSeasonEpisodeFromUrl(url: String): Pair<Int?, Int?> {
+    return try {
+        val parts = url.split("/")
+        if (parts.size >= 3) {
+            val episode = parts.last().toIntOrNull()
+            val season = parts[parts.size - 2].toIntOrNull()
+            season to episode
+        } else {
+            null to null
+        }
+    } catch (e: Exception) {
+        null to null
+    }
 }
 
 enum class RotationMode {
@@ -513,12 +392,12 @@ private fun ExoPlayerView(
     onQualitiesDetected: (List<VideoQuality>, ExoPlayer) -> Unit,
     onShowQualityDialog: () -> Unit,
     onShowSubtitleDialog: () -> Unit,
-    currentSubtitleCues: List<SubtitleCue>,
     detectedSubtitles: List<SubtitleTrack>
 ) {
     val context = LocalContext.current
     var currentPos by remember { mutableStateOf(0L) }
     var rotationMode by remember { mutableStateOf(RotationMode.AUTO) }
+    var showControls by remember { mutableStateOf(true) }
     val activity = context.findActivity()
     val window = activity?.window
     
@@ -546,30 +425,73 @@ private fun ExoPlayerView(
         }
     }
     
+    
     val exoPlayer = remember {
         val trackSelector = DefaultTrackSelector(context)
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
             .setSeekBackIncrementMs(10000)
             .setSeekForwardIncrementMs(10000)
-            .build().apply {
-                setMediaItem(ExoMediaItem.fromUri(streamInfo.streamUrl))
-                prepare()
-                playWhenReady = true
-                addListener(object : Player.Listener {
-                    override fun onPlaybackStateChanged(playbackState: Int) {
-                        if (playbackState == Player.STATE_READY) {
-                            onQualitiesDetected(getAvailableQualities(this@apply), this@apply)
-                            Log.d(TAG, "Player ready, ${detectedSubtitles.size} subtitles available")
-                        }
-                        if (playbackState == Player.STATE_ENDED) onBack()
-                    }
-                    
-                    override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
-                        Log.e(TAG, "Playback error: ${error.message}", error)
-                    }
-                })
+            .build()
+    }
+    
+    // Update MediaItem when subtitles are detected
+    LaunchedEffect(detectedSubtitles.size, streamInfo.streamUrl) {
+        val mediaItemBuilder = ExoMediaItem.Builder()
+            .setUri(streamInfo.streamUrl)
+        
+        // Inject all detected subtitles
+        if (detectedSubtitles.isNotEmpty()) {
+            val subtitleConfigs = detectedSubtitles.map { track ->
+                val mimeType = when {
+                    track.url.contains(".vtt") || track.url.contains("format=vtt") -> MimeTypes.TEXT_VTT
+                    track.url.contains(".srt") || track.url.contains("format=srt") -> MimeTypes.APPLICATION_SUBRIP
+                    else -> MimeTypes.TEXT_VTT // Default to VTT
+                }
+                
+                ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(track.url))
+                    .setMimeType(mimeType)
+                    .setLanguage(track.language)
+                    .setLabel(track.label)
+                    .setSelectionFlags(0) // Not auto-selected
+                    .build()
             }
+            mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
+            Log.d(TAG, "Injected ${subtitleConfigs.size} subtitle tracks into ExoPlayer")
+        }
+        
+        val currentPosition = exoPlayer.currentPosition
+        val wasPlaying = exoPlayer.isPlaying
+        
+        exoPlayer.setMediaItem(mediaItemBuilder.build())
+        exoPlayer.prepare()
+        
+        // Restore playback state
+        if (currentPosition > 0) {
+            exoPlayer.seekTo(currentPosition)
+        }
+        exoPlayer.playWhenReady = wasPlaying || currentPosition == 0L
+    }
+    
+    // Player state listener
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    onQualitiesDetected(getAvailableQualities(exoPlayer), exoPlayer)
+                    Log.d(TAG, "Player ready, ${detectedSubtitles.size} subtitles available")
+                }
+                if (playbackState == Player.STATE_ENDED) onBack()
+            }
+            
+            override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
+                Log.e(TAG, "Playback error: ${error.message}", error)
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+        }
     }
 
     LaunchedEffect(exoPlayer) {
@@ -598,6 +520,8 @@ private fun ExoPlayerView(
         }
     }
     
+    var playerView by remember { mutableStateOf<StyledPlayerView?>(null) }
+    
     Box(modifier = Modifier.fillMaxSize()) {
         AndroidView(
             factory = { ctx ->
@@ -605,63 +529,85 @@ private fun ExoPlayerView(
                     player = exoPlayer
                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
                     useController = true
-                    controllerShowTimeoutMs = 5000
+                    controllerShowTimeoutMs = 3000  // Auto-hide after 3 seconds
                     setShowNextButton(false)
                     setShowPreviousButton(false)
+                    resizeMode = com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM  // Fill screen
+                    
+                    // Sync our controls with ExoPlayer's controller visibility
+                    setControllerVisibilityListener(
+                        StyledPlayerView.ControllerVisibilityListener { visibility ->
+                            showControls = (visibility == android.view.View.VISIBLE)
+                        }
+                    )
+                    
+                    playerView = this
                     post { showController() }
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
         
-        
-        SubtitleOverlay(cues = currentSubtitleCues, currentPositionMs = currentPos)
-        
-        // Gesture Controls Overlay
+        // Gesture Controls Overlay with brightness/volume
         GestureControlsOverlay(
             exoPlayer = exoPlayer,
+            playerView = playerView,
+            window = window,
             modifier = Modifier.fillMaxSize()
         )
         
-        Column(
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp),
-            horizontalAlignment = Alignment.End
+        // Auto-hiding controls
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
         ) {
-            FloatingActionButton(
-                onClick = onShowQualityDialog,
-                containerColor = Color.Black.copy(alpha = 0.6f),
-                modifier = Modifier.padding(bottom = 8.dp).size(48.dp)
-            ) { Icon(Icons.Default.Settings, "Quality", tint = Color.White) }
-            
-            FloatingActionButton(
-                onClick = onShowSubtitleDialog,
-                containerColor = Color.Black.copy(alpha = 0.6f),
-                modifier = Modifier.padding(bottom = 8.dp).size(48.dp)
-            ) { 
-                Icon(Icons.Default.Subtitles, "Subtitles", tint = Color.White)
-            }
-            
-            // Rotation lock button
-            FloatingActionButton(
-                onClick = { rotationMode = rotationMode.next() },
-                containerColor = Color.Black.copy(alpha = 0.6f),
-                modifier = Modifier.size(48.dp)
-            ) { 
-                Text(
-                    text = when(rotationMode) {
-                        RotationMode.AUTO -> "AUTO"
-                        RotationMode.PORTRAIT -> "⬆"
-                        RotationMode.LANDSCAPE -> "⬅"
-                    },
-                    color = Color.White,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            Column(
+                horizontalAlignment = Alignment.End
+            ) {
+                FloatingActionButton(
+                    onClick = onShowQualityDialog,
+                    containerColor = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(bottom = 8.dp).size(48.dp)
+                ) { Icon(Icons.Default.Settings, "Quality", tint = Color.White) }
+                
+                FloatingActionButton(
+                    onClick = onShowSubtitleDialog,
+                    containerColor = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(bottom = 8.dp).size(48.dp)
+                ) { 
+                    Icon(Icons.Default.Subtitles, "Subtitles", tint = Color.White)
+                }
+                
+                FloatingActionButton(
+                    onClick = { rotationMode = rotationMode.next() },
+                    containerColor = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier.size(48.dp)
+                ) { 
+                    Text(
+                        text = when(rotationMode) {
+                            RotationMode.AUTO -> "AUTO"
+                            RotationMode.PORTRAIT -> "⬆"
+                            RotationMode.LANDSCAPE -> "⬅"
+                        },
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
         
-        IconButton(onClick = onBack, modifier = Modifier.align(Alignment.TopStart).padding(16.dp)) {
-            Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(32.dp))
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(32.dp))
+            }
         }
     }
 }
@@ -669,19 +615,44 @@ private fun ExoPlayerView(
 @Composable
 private fun GestureControlsOverlay(
     exoPlayer: ExoPlayer,
+    playerView: StyledPlayerView?,
+    window: android.view.Window?,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    val audioManager = remember { context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager }
+    
     var seekFeedback by remember { mutableStateOf<SeekFeedback?>(null) }
     var speedFeedback by remember { mutableStateOf(false) }
+    var brightnessFeedback by remember { mutableStateOf<Float?>(null) }
+    var volumeFeedback by remember { mutableStateOf<Int?>(null) }
     val scope = rememberCoroutineScope()
     
     Box(modifier = modifier) {
-        // LEFT edge gesture area (30% width, top 85% height - excludes bottom controls)
+        // LEFT edge - brightness + double-tap seek
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.3f)
-                .fillMaxHeight(0.85f)
+                .fillMaxHeight(0.70f)
                 .align(Alignment.TopStart)
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        window?.let { w ->
+                            val layoutParams = w.attributes
+                            val delta = -dragAmount.y / size.height
+                            val newBrightness = (layoutParams.screenBrightness + delta).coerceIn(0f, 1f)
+                            layoutParams.screenBrightness = newBrightness
+                            w.attributes = layoutParams
+                            
+                            brightnessFeedback = newBrightness
+                            scope.launch {
+                                delay(500)
+                                brightnessFeedback = null
+                            }
+                        }
+                    }
+                }
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = {
@@ -710,12 +681,28 @@ private fun GestureControlsOverlay(
                 }
         )
         
-        // RIGHT edge gesture area (30% width, top 85% height - excludes bottom controls)
+        // RIGHT edge - volume + double-tap seek
         Box(
             modifier = Modifier
                 .fillMaxWidth(0.3f)
-                .fillMaxHeight(0.85f)
+                .fillMaxHeight(0.70f)
                 .align(Alignment.TopEnd)
+                .pointerInput(Unit) {
+                    detectDragGestures { change, dragAmount ->
+                        change.consume()
+                        val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                        val delta = (-dragAmount.y / size.height * maxVolume).toInt()
+                        val newVolume = (currentVolume + delta).coerceIn(0, maxVolume)
+                        audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, newVolume, 0)
+                        
+                        volumeFeedback = newVolume
+                        scope.launch {
+                            delay(500)
+                            volumeFeedback = null
+                        }
+                    }
+                }
                 .pointerInput(Unit) {
                     detectTapGestures(
                         onDoubleTap = {
@@ -744,6 +731,67 @@ private fun GestureControlsOverlay(
                 }
         )
         
+        // Brightness feedback
+        brightnessFeedback?.let { brightness ->
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterStart)
+                    .padding(horizontal = 48.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LightMode,
+                        contentDescription = "Brightness",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "${(brightness * 100).toInt()}%",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+        
+        // Volume feedback
+        volumeFeedback?.let { volume ->
+            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(horizontal = 48.dp)
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                        .padding(16.dp)
+                ) {
+                    Icon(
+                        imageVector = if (volume > 0) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                        contentDescription = "Volume",
+                        tint = Color.White,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "${(volume * 100 / maxVolume)}%",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+        }
+        
         // Seek feedback
         seekFeedback?.let { feedback ->
             Box(
@@ -763,7 +811,7 @@ private fun GestureControlsOverlay(
             }
         }
         
-        // Speed feedback - smaller and more transparent
+        // Speed feedback
         AnimatedVisibility(
             visible = speedFeedback,
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 80.dp, end = 16.dp),
@@ -782,6 +830,8 @@ private fun GestureControlsOverlay(
         }
     }
 }
+
+
 
 private data class SeekFeedback(
     val isLeft: Boolean,
@@ -817,22 +867,83 @@ private fun SubtitleOverlay(cues: List<SubtitleCue>, currentPositionMs: Long) {
 @Composable
 private fun SubtitleSelectionDialog(
     tracks: List<SubtitleTrack>,
-    activeTrack: SubtitleTrack?,
-    onSubtitleSelected: (SubtitleTrack?) -> Unit,
+    exoPlayer: ExoPlayer?,
     onDismiss: () -> Unit
 ) {
+    var selectedTrackLanguage by remember { mutableStateOf<String?>(null) }
+    
+    // Use event-driven listener instead of polling for better performance
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: com.google.android.exoplayer2.Tracks) {
+                // Find selected text track
+                val textTrackGroup = tracks.groups.find { 
+                    it.type == com.google.android.exoplayer2.C.TRACK_TYPE_TEXT && it.isSelected
+                }
+                
+                selectedTrackLanguage = if (textTrackGroup != null && textTrackGroup.length > 0) {
+                    textTrackGroup.mediaTrackGroup.getFormat(0).language
+                } else {
+                    null
+                }
+            }
+        }
+        
+        exoPlayer?.addListener(listener)
+        
+        // Initial state
+        exoPlayer?.let { player ->
+            val currentTracks = player.currentTracks
+            val textTrackGroup = currentTracks.groups.find { 
+                it.type == com.google.android.exoplayer2.C.TRACK_TYPE_TEXT && it.isSelected
+            }
+            selectedTrackLanguage = if (textTrackGroup != null && textTrackGroup.length > 0) {
+                textTrackGroup.mediaTrackGroup.getFormat(0).language
+            } else {
+                null
+            }
+        }
+        
+        onDispose {
+            exoPlayer?.removeListener(listener)
+        }
+    }
+    
     Dialog(onDismissRequest = onDismiss) {
         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
             Column(modifier = Modifier.padding(16.dp).widthIn(max = 300.dp)) {
                 Text("Subtitles (${tracks.size} available)", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                SubtitleOption("Off", activeTrack == null) { onSubtitleSelected(null) }
+                
+                SubtitleOption("Off", selectedTrackLanguage == null) { 
+                    exoPlayer?.let { player ->
+                        val trackSelector = player.trackSelector as? DefaultTrackSelector
+                        trackSelector?.parameters = trackSelector?.buildUponParameters()
+                            ?.setRendererDisabled(getTextRendererIndex(player), true)
+                            ?.build() ?: return@let
+                        selectedTrackLanguage = null
+                    }
+                    onDismiss()
+                }
                 
                 if (tracks.isNotEmpty()) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
                         items(tracks) { track ->
-                            SubtitleOption(track.label, activeTrack == track) {
-                                onSubtitleSelected(track)
+                            SubtitleOption(track.label, selectedTrackLanguage == track.language) {
+                                exoPlayer?.let { player ->
+                                    val trackSelector = player.trackSelector as? DefaultTrackSelector
+                                    trackSelector?.parameters = trackSelector?.buildUponParameters()
+                                        ?.setRendererDisabled(getTextRendererIndex(player), false)
+                                        ?.setPreferredTextLanguage(track.language)
+                                        ?.setSelectUndeterminedTextLanguage(true)
+                                        ?.setForceHighestSupportedBitrate(false)
+                                        ?.build() ?: return@let
+                                    selectedTrackLanguage = track.language
+                                    
+                                    // Force ExoPlayer to refresh tracks
+                                    player.prepare()
+                                }
+                                onDismiss()
                             }
                         }
                     }
@@ -847,6 +958,18 @@ private fun SubtitleSelectionDialog(
             }
         }
     }
+}
+
+// Helper function to get text renderer index
+private fun getTextRendererIndex(player: ExoPlayer): Int {
+    val trackSelector = player.trackSelector as? DefaultTrackSelector
+    val mappedTrackInfo = trackSelector?.currentMappedTrackInfo ?: return 0
+    for (i in 0 until mappedTrackInfo.rendererCount) {
+        if (mappedTrackInfo.getRendererType(i) == com.google.android.exoplayer2.C.TRACK_TYPE_TEXT) {
+            return i
+        }
+    }
+    return 0
 }
 
 @Composable
