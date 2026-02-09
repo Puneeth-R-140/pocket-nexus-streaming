@@ -205,11 +205,11 @@ class DetailsViewModel @Inject constructor(
                 val streamUrl = when {
                     media.realMediaType == "tv" -> {
                         // For TV shows, pre-load S01E01
-                        "https://vidsrc.xyz/embed/tv/${media.id}/1/1"
+                        "https://watch.vidora.su/watch/tv/${media.id}/1/1"
                     }
                     else -> {
                         // For movies
-                        "https://vidsrc.xyz/embed/movie/${media.id}"
+                        "https://watch.vidora.su/watch/movie/${media.id}"
                     }
                 }
                 

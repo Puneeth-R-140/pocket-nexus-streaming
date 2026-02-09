@@ -66,50 +66,28 @@ fun DoubleTapControls(
             .fillMaxSize()
             .pointerInput(Unit) {
                 detectTapGestures(
-                    onTap = { offset ->
+                    onDoubleTap = { offset ->
                         val screenWidth = size.width
                         val x = offset.x
                         
-                        // Divide screen into 3 zones: left (35%), center (30%), right (35%)
                         when {
                             x < screenWidth * 0.35f -> {
                                 // Left side - seek backward
-                                val currentTime = System.currentTimeMillis()
-                                
-                                if (currentTime - lastTapTime < 500) {
-                                    // Double tap detected
-                                    tapCount++
-                                    player.seekTo((player.currentPosition - 10000).coerceAtLeast(0))
-                                    doubleTapState = DoubleTapState(SeekDirection.BACKWARD, tapCount)
-                                } else {
-                                    tapCount = 1
-                                    // Single tap toggles controls (YouTube style)
-                                    onToggleControls()
-                                }
-                                lastTapTime = currentTime
+                                tapCount++
+                                player.seekTo((player.currentPosition - 10000).coerceAtLeast(0))
+                                doubleTapState = DoubleTapState(SeekDirection.BACKWARD, tapCount)
                             }
                             x > screenWidth * 0.65f -> {
                                 // Right side - seek forward
-                                val currentTime = System.currentTimeMillis()
-                                
-                                if (currentTime - lastTapTime < 500) {
-                                    // Double tap detected
-                                    tapCount++
-                                    player.seekTo(player.currentPosition + 10000)
-                                    doubleTapState = DoubleTapState(SeekDirection.FORWARD, tapCount)
-                                } else {
-                                    tapCount = 1
-                                    // Single tap toggles controls (YouTube style)
-                                    onToggleControls()
-                                }
-                                lastTapTime = currentTime
-                            }
-                            else -> {
-                                // Center - toggle controls
-                                onToggleControls()
-                                tapCount = 0
+                                tapCount++
+                                player.seekTo(player.currentPosition + 10000)
+                                doubleTapState = DoubleTapState(SeekDirection.FORWARD, tapCount)
                             }
                         }
+                    },
+                    onTap = { offset ->
+                        // Standard single tap toggle (handled by system with delay to wait for double tap)
+                        onToggleControls()
                     },
                     onLongPress = {
                         // Long press anywhere - 2x speed

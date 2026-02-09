@@ -218,10 +218,10 @@ fun DetailsScreen(
                                 // Construct URL for resuming
                                 val resumeUrl = if (progress.season != null && progress.episode != null) {
                                     // TV show - resume specific episode
-                                    "https://vidsrc.xyz/embed/tv/${media.id}/${progress.season}/${progress.episode}"
+                                    "https://watch.vidora.su/watch/tv/${media.id}/${progress.season}/${progress.episode}"
                                 } else {
                                     // Movie - resume movie
-                                    "https://vidsrc.xyz/embed/movie/${media.id}"
+                                    "https://watch.vidora.su/watch/movie/${media.id}"
                                 }
                                 onWatchClick(media.id, media.realMediaType, resumeUrl)
                             },

@@ -121,7 +121,7 @@ fun SettingsScreen(
                 Divider()
                 PreferenceItem(
                     title = "App Version",
-                    subtitle = "1.1.0"
+                    subtitle = "2.0.1"
                 )
                 Divider()
                 PreferenceItem(
