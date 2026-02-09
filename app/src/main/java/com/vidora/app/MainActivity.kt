@@ -16,11 +16,13 @@ import androidx.navigation.navArgument
 import com.vidora.app.ui.screens.HomeScreen
 import com.vidora.app.ui.screens.DetailsScreen
 import com.vidora.app.ui.screens.SearchScreen
+import com.vidora.app.ui.screens.SettingsScreen
 import com.vidora.app.ui.components.VideoPlayerWebView
 import com.vidora.app.ui.theme.VidoraTheme
 import com.vidora.app.ui.viewmodels.HomeViewModel
 import com.vidora.app.ui.viewmodels.DetailsViewModel
 import com.vidora.app.ui.viewmodels.SearchViewModel
+import com.vidora.app.ui.viewmodels.SettingsViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -49,7 +51,38 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onSearchClick = {
                                     navController.navigate("search")
+                                },
+                                onSettingsClick = {
+                                    navController.navigate("settings")
                                 }
+                            )
+                        }
+
+                        composable("settings") {
+                            val viewModel: SettingsViewModel = hiltViewModel()
+                            SettingsScreen(
+                                viewModel = viewModel,
+                                onBackClick = {
+                                    navController.popBackStack()
+                                },
+                                onGestureGuideClick = {
+                                    navController.navigate("gesture_guide")
+                                },
+                                onCheckUpdatesClick = {
+                                    navController.navigate("update_check")
+                                }
+                            )
+                        }
+
+                        composable("gesture_guide") {
+                            com.vidora.app.ui.screens.GestureGuideScreen(
+                                onBackClick = { navController.popBackStack() }
+                            )
+                        }
+
+                        composable("update_check") {
+                            com.vidora.app.ui.screens.UpdateScreen(
+                                onBackClick = { navController.popBackStack() }
                             )
                         }
 
@@ -75,6 +108,9 @@ class MainActivity : ComponentActivity() {
                                 viewModel = viewModel,
                                 onWatchClick = { mediaId, mediaType, url ->
                                     navController.navigate("player/$mediaId/$mediaType/${java.net.URLEncoder.encode(url, "UTF-8")}")
+                                },
+                                onMediaClick = { media ->
+                                    navController.navigate("details/${media.id}/${media.realMediaType}")
                                 }
                             )
                         }
@@ -108,13 +144,43 @@ class MainActivity : ComponentActivity() {
                                 credits = null,
                                 similar = null,
                                 numberOfSeasons = null,
-                                seasons = null
+                                seasons = null,
+                                runtime= null,
+                                episodeRunTime = null,
+                                imdbId = null,
+                                contentRatings = null
                             )
                             
                             com.vidora.app.player.NativePlayerScreen(
                                 media = media,
                                 playerUrl = java.net.URLDecoder.decode(url, "UTF-8"),
-                                onBack = { navController.popBackStack() }
+                                onBack = { navController.popBackStack() },
+                                onNavigateToEpisode = { nextSeason, nextEpisode ->
+                                    // Extract base URL pattern and construct next episode URL
+                                    val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
+                                    
+                                    // Handle different URL patterns by reconstructing completely
+                                    val nextEpisodeUrl = when {
+                                        decodedUrl.contains("watch.vidora.su") -> {
+                                            "https://watch.vidora.su/watch/tv/$mediaId/$nextSeason/$nextEpisode"
+                                        }
+                                        else -> {
+                                            // Default to vidsrc.xyz format which works reliably
+                                            "https://vidsrc.xyz/embed/tv/$mediaId/$nextSeason/$nextEpisode"
+                                        }
+                                    }
+                                    
+                                    android.util.Log.d("AutoPlay", "Current URL: $decodedUrl")
+                                    android.util.Log.d("AutoPlay", "Next episode URL: $nextEpisodeUrl")
+                                    
+                                    // Navigate to next episode
+                                    navController.navigate("player/$mediaId/$mediaType/${java.net.URLEncoder.encode(nextEpisodeUrl, "UTF-8")}") {
+                                        // Replace current player in back stack to avoid stacking
+                                        popUpTo("player/{mediaId}/{mediaType}/{url}") {
+                                            inclusive = true
+                                        }
+                                    }
+                                }
                             )
                         }
                     }

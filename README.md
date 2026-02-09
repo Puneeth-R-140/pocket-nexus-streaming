@@ -1,109 +1,72 @@
-# Pocket Nexus v1.1.0 
-> [!IMPORTANT]
-> **FRESH INSTALLATION REQUIRED**
-> Since I have added new signing keys and major feature updates, please **uninstall the old version** completely before installing this update. 
-> 1. Long press the existing app icon -> Uninstall
-> 2. Install the new APK
-> 3. Enjoy the new features!
+# Pocket Nexus - Streaming Application
 
-**LEGAL DISCLAIMER:** This is an educational project. I don't own or host any of the content accessible through this app. Everything is streamed from third-party sources that I have no control over. Use this responsibly and make sure you're following your local laws and respecting copyright. I'm not responsible for how you use this.
+> **Note:**
+> If you are upgrading from a previous version signed with the same key, you can install this update directly. If you encounter an "App not installed" error, please uninstall the previous version first.
 
-## What is this?
+**LEGAL DISCLAIMER:** This project is for educational purposes only. The developer does not own or host any content accessible through this application. All content is streamed from third-party sources. Users are responsible for complying with local laws and copyright regulations.
 
-A streaming app I built while learning Android development. Started as a simple video player and ended up with a bunch of cool features like gesture controls, automatic subtitle discovery, and a custom player.
+## Overview
 
-## Features
+Pocket Nexus (Vidora) is a native Android streaming application developed to demonstrate modern Android development practices. It features a custom-built video player, automated subtitle integration, and a refined user interface.
 
-**Player Controls:**
-- **Center area:** Tap to show/hide controls, access play/pause, seek bar, and +10/-10 buttons
-- **Left side gestures:**
-  - Double-tap to seek backward 10 seconds
-  - Swipe up/down to adjust screen brightness
-  - Long-press for 2x playback speed
-- **Right side gestures:**
-  - Double-tap to seek forward 10 seconds
-  - Swipe up/down to adjust volume
-  - Long-press for 2x playback speed
-- **Rotation lock:** Auto/Portrait/Landscape modes
-- **Quality selection:** Choose video quality
-- **Full-screen:** Video zooms to fill entire screen (no black bars)
-- **Auto-hide controls:** Controls disappear after 3 seconds of inactivity
-- **Immersive mode:** Full-screen without system bars
+## Key Features
 
-**Subtitles (NEW!):**
-- **Instant subtitle loading:** 50+ languages available immediately using `sub.wyzie.ru` API
-- **Proactive fetching:** Subtitles are fetched and ready before you even click play
-- **Works mid-stream:** Select subtitles anytime during playback - they appear instantly
-- **Multi-language support:** English, Spanish, French, German, Italian, Portuguese, Russian, Japanese, Korean, Hindi, Chinese, Arabic, and many more
-- **Multiple formats:** Supports SRT and VTT subtitle formats
-- **Hearing impaired options:** HI/SDH and regular subtitles available
+**Advanced Video Player**
+- **Gesture Controls:**
+  - Single tap to toggle UI controls.
+  - Double tap to seek (forward/backward).
+  - Swipe gestures for brightness and volume control.
+- **Playback Features:**
+  - Auto-play next episode with season intelligence.
+  - Manual "Next Episode" navigation.
+  - Selection of video quality and playback speed.
+  - Immersive full-screen mode with rotation lock.
 
-**UI:**
-- Material 3 design with black and purple theme
-- Smooth animations and transitions
-- Dark mode optimized
-- Auto-hiding floating controls
+**Subtitle System**
+- **Automated Retrieval:** Instant integration with `sub.wyzie.ru` API for multi-language support.
+- **Format Support:** Compatibility with SRT and VTT formats.
+- **Accessibility:** Options for hearing impaired (HI/SDH) subtitles.
 
-**Technical:**
-- Clean API-based subtitle integration (removed legacy WebView polling)
-- Optimized gesture zones (70% height) - seek bar always clickable
-- Synced control visibility (floating buttons + ExoPlayer controls)
-- Persistent playback state on minimize/restore
+**User Interface**
+- Material 3 Design implementation.
+- Dark mode optimization.
+- Smooth transitions and responsive layout.
 
-## Known Issues
+## Technical Architecture
 
-- Some streams may have limited subtitle availability (depends on source)
-- Subtitle selection requires network connectivity
+- **Language:** Kotlin
+- **UI Framework:** Jetpack Compose
+- **Video Engine:** ExoPlayer / Media3
+- **Dependency Injection:** Hilt
+- **Networking:** Retrofit + OkHttp
+- **Local Storage:** Room Database
+- **Image Loading:** Coil
 
 ## Installation
 
 **Option 1: Download APK**
-1. Go to Releases
-2. Download the latest APK
-3. Enable "Unknown Sources" in Android settings
-4. Install it
+1. Navigate to the Releases section.
+2. Download the latest APK file.
+3. specific "Install unknown apps" permission if prompted.
+4. Install the application.
 
-**Option 2: Build from source**
+**Option 2: Build from Source**
 ```bash
 git clone https://github.com/Puneeth-R-140/pocket-nexus-streaming.git
 cd pocket-nexus-streaming
-./gradlew assembleDebug
+./gradlew assembleRelease
 ```
-
-APK will be in `app/build/outputs/apk/debug/`
-
-## Tech Stack
-
-- Kotlin
-- Jetpack Compose for UI
-- ExoPlayer for video playback
-- Hilt for dependency injection
-- Retrofit + OkHttp for networking
-- Room for local database
-- Coil for image loading
-
-## Project Structure
-
-```
-app/src/main/java/com/vidora/app/
-├── data/       # repositories, API, database
-├── ui/         # screens, components, viewmodels
-├── player/     # custom player and subtitle engine
-└── di/         # dependency injection
-```
+The output APK will be located in `app/build/outputs/apk/release/`.
 
 ## Contributing
 
-Found a bug or want to add something? Open an issue or PR. Just make sure to test your changes.
+Contributions are welcome. Please ensure all changes are tested before submitting a Pull Request.
 
 ## License
 
-MIT License - see LICENSE file for details
-
-## Disclaimer
-
-This is purely educational. Don't use it for anything illegal. Respect copyright laws and content creators.
+MIT License - see LICENSE file for details.
 
 ---
 
-Built while learning Android dev. Still improving it.
+**Developed by Puneeth R**
+

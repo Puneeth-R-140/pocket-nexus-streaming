@@ -32,10 +32,21 @@ import com.vidora.app.ui.components.shimmerEffect
 @Composable
 fun DetailsScreen(
     viewModel: DetailsViewModel,
-    onWatchClick: (String, String, String) -> Unit
+    onWatchClick: (String, String, String) -> Unit,
+    onMediaClick: (MediaItem) -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val media = uiState.media
+    
+    // Pre-load stream when screen opens, cancel when user leaves (minimal data!)
+    DisposableEffect(media) {
+        if (media != null) {
+            viewModel.startPreloading()
+        }
+        onDispose {
+            viewModel.cancelPreload()
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (uiState.isLoading && media == null) {
@@ -86,14 +97,153 @@ fun DetailsScreen(
                         }
                     }
                     
-                    Text(
-                        text = "${media.realMediaType.uppercase()} • ${media.voteAverage}/10",
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
+                    // Metadata row: Runtime, Year, Genres, Ratings
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Runtime
+                        media.runtimeMinutes?.let { minutes ->
+                            val hours = minutes / 60
+                            val mins = minutes % 60
+                            val runtimeText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                            Text(
+                                text = runtimeText,
+                                fontSize = 13.sp,
+                                color = Color.LightGray
+                            )
+                            Text("•", fontSize = 13.sp, color = Color.Gray)
+                        }
+                        
+                        // Year
+                        media.releaseYear?.let { year ->
+                            Text(
+                                text = year,
+                                fontSize = 13.sp,
+                                color = Color.LightGray
+                            )
+                            Text("•", fontSize = 13.sp, color = Color.Gray)
+                        }
+                        
+                        // Media Type
+                        Text(
+                            text = media.realMediaType.uppercase(),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    
+                    // Genres
+                    media.genres?.takeIf { it.isNotEmpty() }?.let { genres ->
+                        Row(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            genres.take(3).forEach { genre ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surface,
+                                    shape = MaterialTheme.shapes.small
+                                ) {
+                                    Text(
+                                        text = genre.name,
+                                        fontSize = 12.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Ratings Row
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // TMDB Rating
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "TMDB: ",
+                                fontSize = 13.sp,
+                                color = Color.Gray
+                            )
+                            Text(
+                                text = String.format("%.1f", media.voteAverage),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "/10",
+                                fontSize = 13.sp,
+                                color = Color.Gray
+                            )
+                        }
+                        
+                        // IMDb Rating
+                        uiState.imdbRating?.let { imdbRating ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "IMDb: ",
+                                    fontSize = 13.sp,
+                                    color = Color.Gray
+                                )
+                                Text(
+                                    text = imdbRating,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFF5C518) // IMDb yellow
+                                )
+                                Text(
+                                    text = "/10",
+                                    fontSize = 13.sp,
+                                    color = Color.Gray
+                                )
+                            }
+                        }
+                    }
                     
                     Spacer(modifier = Modifier.height(8.dp))
+                    
+                    // Continue Watching button (if progress exists)
+                    uiState.playbackProgress?.let { progress ->
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        FilledTonalButton(
+                            onClick = {
+                                // Construct URL for resuming
+                                val resumeUrl = if (progress.season != null && progress.episode != null) {
+                                    // TV show - resume specific episode
+                                    "https://vidsrc.xyz/embed/tv/${media.id}/${progress.season}/${progress.episode}"
+                                } else {
+                                    // Movie - resume movie
+                                    "https://vidsrc.xyz/embed/movie/${media.id}"
+                                }
+                                onWatchClick(media.id, media.realMediaType, resumeUrl)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text(
+                                    text = "Continue Watching",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${progress.progressPercent}% watched • ${progress.timeRemaining}",
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
                     
                     Button(
                         onClick = { 
@@ -131,6 +281,58 @@ fun DetailsScreen(
                         lineHeight = 20.sp,
                         color = Color.LightGray
                     )
+
+                    // Cast & Crew Section
+                    media.credits?.cast?.takeIf { it.isNotEmpty() }?.let { cast ->
+                        Spacer(modifier = Modifier.height(24.dp))
+                        
+                        Text(
+                            text = "Cast",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        Spacer(modifier = Modifier.height(12.dp))
+                        
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(cast.take(10)) { castMember ->
+                                Column(
+                                    modifier = Modifier.width(100.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    AsyncImage(
+                                        model = castMember.profilePath?.let { 
+                                            "https://image.tmdb.org/t/p/w185$it" 
+                                        },
+                                        contentDescription = castMember.name,
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .background(Color.DarkGray, MaterialTheme.shapes.medium),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = castMember.name,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = Color.White,
+                                        maxLines = 2,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                    Text(
+                                        text = castMember.character,
+                                        fontSize = 10.sp,
+                                        color = Color.Gray,
+                                        maxLines = 2,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     if (media.realMediaType == "tv") {
                         Spacer(modifier = Modifier.height(24.dp))
@@ -190,6 +392,28 @@ fun DetailsScreen(
                             }
                         }
                     }
+
+                    if (uiState.recommendations.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "You Might Also Like",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(uiState.recommendations) { recommendation ->
+                                com.vidora.app.ui.components.MediaCard(
+                                    item = recommendation,
+                                    onClick = { onMediaClick(recommendation) }
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
             }
         } else if (uiState.error != null && media == null) {

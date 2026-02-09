@@ -28,7 +28,7 @@ interface TmdbService {
     suspend fun getDetails(
         @Path("media_type") mediaType: String,
         @Path("id") id: String,
-        @Query("append_to_response") append: String = "credits,similar"
+        @Query("append_to_response") append: String = "credits,similar,content_ratings"
     ): MediaItem
 
     @GET("tv/{id}/season/{season_number}")
@@ -36,4 +36,11 @@ interface TmdbService {
         @Path("id") id: String,
         @Path("season_number") season: Int
     ): SeasonEpisodesResponse
+
+    @GET("{media_type}/{id}/recommendations")
+    suspend fun getRecommendations(
+        @Path("media_type") mediaType: String,
+        @Path("id") id: String,
+        @Query("page") page: Int = 1
+    ): TmdbResponse<MediaItem>
 }

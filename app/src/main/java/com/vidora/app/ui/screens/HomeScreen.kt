@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -32,13 +33,14 @@ import com.vidora.app.ui.components.shimmerEffect
 fun HomeScreen(
     viewModel: HomeViewModel,
     onMediaClick: (MediaItem) -> Unit,
-    onSearchClick: () -> Unit
+    onSearchClick: () -> Unit,
+    onSettingsClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (uiState.isLoading && uiState.trendingMovies.isEmpty()) {
-            ShimmerHomeScreen(onSearchClick)
+            ShimmerHomeScreen(onSearchClick, onSettingsClick)
         } else if (uiState.error != null && uiState.trendingMovies.isEmpty()) {
             ErrorStateView(
                 message = uiState.error ?: "Unknown error",
@@ -47,7 +49,7 @@ fun HomeScreen(
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item { 
-                    HeaderSection(onSearchClick = onSearchClick) 
+                    HeaderSection(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick) 
                 }
 
                 if (uiState.history.isNotEmpty()) {
@@ -55,7 +57,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Continue Watching",
                             items = uiState.history.map { it.toMediaItem() },
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyItems = uiState.history
                         )
                     }
                 }
@@ -125,9 +128,9 @@ fun HomeScreen(
 }
 
 @Composable
-fun ShimmerHomeScreen(onSearchClick: () -> Unit) {
+fun ShimmerHomeScreen(onSearchClick: () -> Unit, onSettingsClick: () -> Unit) {
     Column(modifier = Modifier.fillMaxSize()) {
-        HeaderSection(onSearchClick = onSearchClick)
+        HeaderSection(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick)
         
         repeat(3) {
             Column(modifier = Modifier.padding(vertical = 8.dp)) {
@@ -153,7 +156,7 @@ fun ShimmerHomeScreen(onSearchClick: () -> Unit) {
 }
 
 @Composable
-fun HeaderSection(onSearchClick: () -> Unit) {
+fun HeaderSection(onSearchClick: () -> Unit, onSettingsClick: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -161,24 +164,34 @@ fun HeaderSection(onSearchClick: () -> Unit) {
     ) {
         Column {
             Text(
-                text = "PN",
+                text = "POCKET NEXUS",
                 fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.primary,
+                letterSpacing = 2.sp
             )
             Text(
-                text = "Stream your favorites",
+                text = "By GHOST",
                 fontSize = 14.sp,
                 color = Color.Gray
             )
         }
         
-        IconButton(onClick = onSearchClick) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Search",
-                tint = Color.White
-            )
+        Row {
+            IconButton(onClick = onSearchClick) {
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = "Search",
+                    tint = Color.White
+                )
+            }
+            IconButton(onClick = onSettingsClick) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Settings",
+                    tint = Color.White
+                )
+            }
         }
     }
 }
@@ -187,7 +200,8 @@ fun HeaderSection(onSearchClick: () -> Unit) {
 fun MediaSection(
     title: String,
     items: List<MediaItem>,
-    onMediaClick: (MediaItem) -> Unit
+    onMediaClick: (MediaItem) -> Unit,
+    historyItems: List<com.vidora.app.data.local.HistoryEntity>? = null
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Text(
@@ -201,8 +215,18 @@ fun MediaSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(items) { item ->
-                MediaCard(item = item, onClick = { onMediaClick(item) })
+            items(items.size) { index ->
+                val item = items[index]
+                val history = historyItems?.getOrNull(index)
+                val progress = if (history != null && history.durationMs > 0) {
+                    history.positionMs.toFloat() / history.durationMs.toFloat()
+                } else null
+                
+                MediaCard(
+                    item = item, 
+                    onClick = { onMediaClick(item) },
+                    progress = progress
+                )
             }
         }
     }

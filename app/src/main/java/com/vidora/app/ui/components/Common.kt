@@ -66,21 +66,40 @@ fun ShimmerCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MediaCard(item: MediaItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun MediaCard(
+    item: MediaItem, 
+    onClick: () -> Unit, 
+    modifier: Modifier = Modifier,
+    progress: Float? = null
+) {
     Card(
         onClick = onClick,
         modifier = modifier.width(140.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column {
-            AsyncImage(
-                model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
-                contentDescription = item.displayTitle,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(200.dp),
-                contentScale = ContentScale.Crop
-            )
+            Box {
+                AsyncImage(
+                    model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
+                    contentDescription = item.displayTitle,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
+                    contentScale = ContentScale.Crop
+                )
+                
+                if (progress != null && progress > 0f) {
+                    LinearProgressIndicator(
+                        progress = progress.coerceIn(0f, 1f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .height(4.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.Black.copy(alpha = 0.5f)
+                    )
+                }
+            }
             Text(
                 text = item.displayTitle,
                 fontSize = 12.sp,

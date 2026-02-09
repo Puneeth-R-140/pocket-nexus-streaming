@@ -25,11 +25,17 @@ data class MediaItem(
     @SerializedName("credits") val credits: Credits?,
     @SerializedName("similar") val similar: TmdbResponse<MediaItem>?,
     @SerializedName("number_of_seasons") val numberOfSeasons: Int?,
-    @SerializedName("seasons") val seasons: List<Season>?
+    @SerializedName("seasons") val seasons: List<Season>?,
+    @SerializedName("runtime") val runtime: Int?,
+    @SerializedName("episode_run_time") val episodeRunTime: List<Int>?,
+    @SerializedName("imdb_id") val imdbId: String?,
+    @SerializedName("content_ratings") val contentRatings: ContentRatings?
 ) {
     val displayTitle: String get() = title ?: name ?: "Unknown"
     val realMediaType: String get() = mediaType ?: if (title != null) "movie" else "tv"
     val totalSeasons: Int get() = numberOfSeasons ?: seasons?.size ?: 1
+    val runtimeMinutes: Int? get() = runtime ?: episodeRunTime?.firstOrNull()
+    val releaseYear: String? get() = (releaseDate ?: firstAirDate)?.take(4)
 }
 
 data class Season(
@@ -66,3 +72,16 @@ data class Episode(
 data class SeasonEpisodesResponse(
     @SerializedName("episodes") val episodes: List<Episode>
 )
+
+data class ContentRatings(
+    @SerializedName("results") val results: List<ContentRating>?
+)
+
+data class ContentRating(
+    @SerializedName("iso_3166_1") val country: String,
+    @SerializedName("rating") val rating: String?,
+    @SerializedName("certification") val certification: String?
+) {
+    val displayRating: String get() = rating ?: certification ?: ""
+}
+

@@ -22,7 +22,7 @@ object DatabaseModule {
             context,
             VidoraDatabase::class.java,
             "vidora_db"
-        ).build()
+        ).fallbackToDestructiveMigration().build()
     }
 
     @Provides

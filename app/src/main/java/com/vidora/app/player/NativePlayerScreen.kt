@@ -20,7 +20,14 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.*
+import com.vidora.app.player.components.CustomPlayerControls
+import com.vidora.app.player.components.DoubleTapControls
+import com.vidora.app.player.components.SpeedControlPanel
+import com.vidora.app.player.components.AutoPlayCountdown
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,6 +59,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import com.vidora.app.util.NetworkResult
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import android.net.Uri
@@ -82,7 +90,8 @@ interface NativePlayerEntryPoint {
 fun NativePlayerScreen(
     media: VidoraMediaItem,
     playerUrl: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToEpisode: ((season: Int, episode: Int) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val entryPoint = remember {
@@ -96,14 +105,29 @@ fun NativePlayerScreen(
     var extractedUrl by remember { mutableStateOf<String?>(null) }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
+    var showSpeedDialog by remember { mutableStateOf(false) }
     var availableQualities by remember { mutableStateOf<List<VideoQuality>>(emptyList()) }
     var selectedQuality by remember { mutableStateOf<VideoQuality?>(null) }
     var exoPlayerInstance by remember { mutableStateOf<ExoPlayer?>(null) }
     val detectedSubtitles = remember { mutableStateMapOf<String, SubtitleTrack>() }
     var webViewKey by remember { mutableStateOf(0) } // For forcing WebView recreation on retry
+    var userSettings by remember { mutableStateOf<com.vidora.app.data.local.SettingsEntity?>(null) }
+    var hasAutoSelectedSubtitle by remember { mutableStateOf(false) }
+    var showAutoPlayCountdown by remember { mutableStateOf(false) }
+    var nextEpisodeInfo by remember { mutableStateOf<Pair<Int, Int>?>(null) }
+    var totalEpisodesInSeason by remember { mutableStateOf<Int?>(null) }
+    var totalSeasons by remember { mutableStateOf<Int?>(null) }
     
-    
-    val scope = rememberCoroutineScope()
+    // Fetch total seasons
+    LaunchedEffect(media.id) {
+        if (media.realMediaType == "tv") {
+            repository.getDetails("tv", media.id).collect { result ->
+                if (result is NetworkResult.Success) {
+                    totalSeasons = result.data.numberOfSeasons ?: result.data.seasons?.size
+                }
+            }
+        }
+    }
     
     // Extract season and episode from URL for TV shows
     val (season, episode) = remember(playerUrl, media.realMediaType) {
@@ -113,10 +137,32 @@ fun NativePlayerScreen(
             null to null
         }
     }
+
+    // Fetch episodes to know when to switch seasons
+    LaunchedEffect(media.id, season) {
+        if (media.realMediaType == "tv" && season != null) {
+            repository.getEpisodes(media.id, season).collect { result ->
+                if (result is NetworkResult.Success) {
+                    totalEpisodesInSeason = result.data.size
+                }
+            }
+        }
+    }
+    
+    // Load user settings for subtitle preference
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) {
+        try {
+            userSettings = repository.getSettings()
+            Log.d(TAG, "Loaded user settings: default subtitle language = ${userSettings?.defaultSubtitleLanguage}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading settings: ${e.message}", e)
+        }
+    }
     
     // Proactively fetch subtitles from API
     LaunchedEffect(media.id, season, episode) {
-        Log.d(TAG, "Fetching subtitles for TMDB ID: ${media.id}, Season: $season, Episode: $episode")
+        Log.d(TAG, "Fetching subtitles for TMDB ID: ${media.id}, Season: ${season}, Episode: ${episode}")
         try {
             val subtitles = repository.getSubtitles(media.id, media.realMediaType, season, episode)
             Log.d(TAG, "Fetched ${subtitles.size} subtitles from API")
@@ -130,6 +176,33 @@ fun NativePlayerScreen(
                         url = subtitle.url
                     )
                     Log.d(TAG, "Added subtitle: ${subtitle.display} (${subtitle.language})")
+                }
+            }
+            
+            // Auto-select subtitle based on user preference
+            if (!hasAutoSelectedSubtitle && detectedSubtitles.isNotEmpty() && exoPlayerInstance != null) {
+                val defaultLang = userSettings?.defaultSubtitleLanguage
+                if (!defaultLang.isNullOrEmpty() && defaultLang != "None") {
+                    val normalizedDefaultLang = normalizeLanguageCode(defaultLang)
+                    val matchingTrack = detectedSubtitles.values.find { track ->
+                        normalizeLanguageCode(track.language) == normalizedDefaultLang
+                    }
+                    
+                    if (matchingTrack != null) {
+                        Log.d(TAG, "Auto-selecting preferred subtitle: ${matchingTrack.label}")
+                        exoPlayerInstance?.let { player ->
+                            val trackSelector = player.trackSelector as? DefaultTrackSelector
+                            val newParams = trackSelector?.buildUponParameters()
+                                ?.setRendererDisabled(getTextRendererIndex(player), false)
+                                ?.setPreferredTextLanguage(matchingTrack.language)
+                                ?.setSelectUndeterminedTextLanguage(true)
+                                ?.build()
+                            if (newParams != null && trackSelector != null) {
+                                trackSelector.parameters = newParams
+                            }
+                            hasAutoSelectedSubtitle = true
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -221,17 +294,59 @@ fun NativePlayerScreen(
             
             is PlayerState.Playing -> {
                 ExoPlayerView(
+                    media = media,
+                    repository = repository,
+                    season = season,
+                    episode = episode,
                     streamInfo = currentState.streamInfo,
                     onBack = onBack,
+                    userSettings = userSettings,
+                    onVideoEnded = { nextSeason, nextEpisode ->
+                        nextEpisodeInfo = nextSeason to nextEpisode
+                        showAutoPlayCountdown = true
+                    },
                     onQualitiesDetected = { qualities, player ->
                         availableQualities = qualities
                         exoPlayerInstance = player
                         if (selectedQuality == null && qualities.isNotEmpty()) {
-                            selectedQuality = qualities.first()
+                            // Auto-select quality based on user preference
+                            val preferredQuality = userSettings?.preferredQuality ?: "Auto"
+                            selectedQuality = when (preferredQuality) {
+                                "720p" -> qualities.find { it.label.contains("720") }
+                                "1080p" -> qualities.find { it.label.contains("1080") }
+                                else -> null // "Auto" - let player decide
+                            } ?: qualities.firstOrNull() // Fallback to first available
+                            
+                            Log.d(TAG, "Auto-selected quality: ${selectedQuality?.label ?: "Auto"} based on preference: $preferredQuality")
+                            
+                            // Apply the quality selection
+                            selectedQuality?.let { quality ->
+                                setVideoQuality(player, quality)
+                            }
                         }
                     },
                     onShowQualityDialog = { showQualityDialog = true },
                     onShowSubtitleDialog = { showSubtitleDialog = true },
+                    onShowSpeedDialog = { showSpeedDialog = true },
+                    onNextEpisode = if (media.realMediaType == "tv" && season != null && episode != null) {
+                        {
+                           // Check if we need to go to next season
+                           if (totalEpisodesInSeason != null && episode >= totalEpisodesInSeason!!) {
+                               // Start of next season
+                               if (totalSeasons != null && season < totalSeasons!!) {
+                                   nextEpisodeInfo = (season + 1) to 1
+                                   showAutoPlayCountdown = true
+                               } else {
+                                   // No more seasons or unknown
+                                   android.widget.Toast.makeText(context, "No more episodes", android.widget.Toast.LENGTH_SHORT).show()
+                               }
+                           } else {
+                               // Next episode in current season
+                               nextEpisodeInfo = season to (episode + 1)
+                               showAutoPlayCountdown = true
+                           }
+                        }
+                    } else null,
                     detectedSubtitles = detectedSubtitles.values.toList()
                 )
             }
@@ -261,6 +376,47 @@ fun NativePlayerScreen(
                 onDismiss = { showSubtitleDialog = false }
             )
         }
+        
+        if (showSpeedDialog) {
+            SpeedControlPanel(
+                player = exoPlayerInstance!!,
+                onDismiss = { showSpeedDialog = false }
+            )
+        }
+        
+        // Auto-play countdown overlay
+        if (showAutoPlayCountdown && nextEpisodeInfo != null) {
+            val (nextSeason, nextEpisode) = nextEpisodeInfo!!
+            AutoPlayCountdown(
+                nextEpisodeTitle = "Season $nextSeason Episode $nextEpisode",
+                onPlayNext = {
+                    showAutoPlayCountdown = false
+                    onNavigateToEpisode?.invoke(nextSeason, nextEpisode)
+                },
+                onCancel = {
+                    showAutoPlayCountdown = false
+                }
+            )
+        }
+    }
+}
+
+// Helper function to convert language code to readable name
+private fun getLanguageName(code: String): String {
+    return when (code.lowercase()) {
+        "en" -> "English"
+        "es" -> "Spanish"
+        "fr" -> "French"
+        "de" -> "German"
+        "it" -> "Italian"
+        "pt" -> "Portuguese"
+        "ja" -> "Japanese"
+        "ko" -> "Korean"
+        "zh" -> "Chinese"
+        "ar" -> "Arabic"
+        "hi" -> "Hindi"
+        "ru" -> "Russian"
+        else -> code.uppercase() // Fallback to uppercase code
     }
 }
 
@@ -369,6 +525,16 @@ private fun extractSeasonEpisodeFromUrl(url: String): Pair<Int?, Int?> {
     }
 }
 
+enum class ScalingMode {
+    FIT, ZOOM, STRETCH;
+    
+    fun next(): ScalingMode = when(this) {
+        FIT -> ZOOM
+        ZOOM -> STRETCH
+        STRETCH -> FIT
+    }
+}
+
 enum class RotationMode {
     AUTO, PORTRAIT, LANDSCAPE;
     
@@ -387,19 +553,53 @@ enum class RotationMode {
 
 @Composable
 private fun ExoPlayerView(
+    media: VidoraMediaItem,
+    repository: com.vidora.app.data.repository.MediaRepository,
+    season: Int?,
+    episode: Int?,
     streamInfo: StreamInfo,
     onBack: () -> Unit,
+    userSettings: com.vidora.app.data.local.SettingsEntity?,
+    onVideoEnded: (season: Int, episode: Int) -> Unit,
     onQualitiesDetected: (List<VideoQuality>, ExoPlayer) -> Unit,
     onShowQualityDialog: () -> Unit,
     onShowSubtitleDialog: () -> Unit,
+    onShowSpeedDialog: () -> Unit,
+    onNextEpisode: (() -> Unit)? = null,
     detectedSubtitles: List<SubtitleTrack>
 ) {
     val context = LocalContext.current
+    val internalScope = rememberCoroutineScope()
     var currentPos by remember { mutableStateOf(0L) }
+    var startupPosition by remember { mutableStateOf<Long?>(null) }
     var rotationMode by remember { mutableStateOf(RotationMode.AUTO) }
+    var scalingMode by remember { mutableStateOf(ScalingMode.ZOOM) }
     var showControls by remember { mutableStateOf(true) }
     val activity = context.findActivity()
     val window = activity?.window
+    
+    val exoPlayer = remember {
+        val trackSelector = DefaultTrackSelector(context)
+        ExoPlayer.Builder(context)
+            .setTrackSelector(trackSelector)
+            .setSeekBackIncrementMs(10000)
+            .setSeekForwardIncrementMs(10000)
+            .build()
+    }
+    
+    // Load initial position from database
+    LaunchedEffect(media.id, season, episode) {
+        val historyItem = repository.getHistoryItem(media.id, season, episode)
+        historyItem?.let {
+            if (it.positionMs > 0 && it.durationMs > 0) {
+                // Only resume if not finished (e.g., at least 5s before end)
+                if (it.positionMs < (it.durationMs - 5000)) {
+                    startupPosition = it.positionMs
+                    Log.d(TAG, "Found saved position: ${it.positionMs}ms")
+                }
+            }
+        }
+    }
     
     // Apply rotation mode whenever it changes
     LaunchedEffect(rotationMode) {
@@ -422,18 +622,15 @@ private fun ExoPlayerView(
             }
             // Restore orientation
             activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            
+            // Release player to stop playback
+            exoPlayer.release()
         }
     }
     
     
-    val exoPlayer = remember {
-        val trackSelector = DefaultTrackSelector(context)
-        ExoPlayer.Builder(context)
-            .setTrackSelector(trackSelector)
-            .setSeekBackIncrementMs(10000)
-            .setSeekForwardIncrementMs(10000)
-            .build()
-    }
+    
+    // Apply rotation mode whenever it changes
     
     // Update MediaItem when subtitles are detected
     LaunchedEffect(detectedSubtitles.size, streamInfo.streamUrl) {
@@ -460,17 +657,24 @@ private fun ExoPlayerView(
             Log.d(TAG, "Injected ${subtitleConfigs.size} subtitle tracks into ExoPlayer")
         }
         
-        val currentPosition = exoPlayer.currentPosition
         val wasPlaying = exoPlayer.isPlaying
         
         exoPlayer.setMediaItem(mediaItemBuilder.build())
         exoPlayer.prepare()
         
-        // Restore playback state
-        if (currentPosition > 0) {
-            exoPlayer.seekTo(currentPosition)
+        // Restore playback state Or resume from history
+        startupPosition?.let { pos ->
+            exoPlayer.seekTo(pos)
+            startupPosition = null // consume it
+            Log.d(TAG, "Resumed from $pos")
+        } ?: run {
+            val currentPosition = exoPlayer.currentPosition
+            if (currentPosition > 0) {
+                exoPlayer.seekTo(currentPosition)
+            }
         }
-        exoPlayer.playWhenReady = wasPlaying || currentPosition == 0L
+        
+        exoPlayer.playWhenReady = wasPlaying || exoPlayer.currentPosition == 0L
     }
     
     // Player state listener
@@ -481,7 +685,23 @@ private fun ExoPlayerView(
                     onQualitiesDetected(getAvailableQualities(exoPlayer), exoPlayer)
                     Log.d(TAG, "Player ready, ${detectedSubtitles.size} subtitles available")
                 }
-                if (playbackState == Player.STATE_ENDED) onBack()
+                if (playbackState == Player.STATE_ENDED) {
+                    // Check if auto-play next episode is enabled
+                   val isAutoPlayEnabled = userSettings?.autoPlayNextEpisode ?: true
+                    
+                    if (isAutoPlayEnabled && media.realMediaType == "tv" && season != null && episode != null) {
+                        // Calculate next episode
+                        val nextEpisode = episode + 1
+                        
+                        Log.d(TAG, "Video ended. Auto-play enabled. Triggering countdown for S${season}E${nextEpisode}")
+                        
+                        // Trigger countdown for next episode
+                        onVideoEnded(season, nextEpisode)
+                    } else {
+                        // Not a TV show or auto-play disabled, just go back
+                        onBack()
+                    }
+                }
             }
             
             override fun onPlayerError(error: com.google.android.exoplayer2.PlaybackException) {
@@ -494,9 +714,27 @@ private fun ExoPlayerView(
         }
     }
 
+    // Periodic history saving & position tracking
     LaunchedEffect(exoPlayer) {
+        var saveCounter = 0
         while (true) {
             currentPos = exoPlayer.currentPosition
+            
+            // Save to history every 5 seconds if playing
+            if (exoPlayer.isPlaying) {
+                saveCounter++
+                if (saveCounter >= 50) { // 50 * 100ms = 5s
+                    saveCounter = 0
+                    repository.updateHistory(
+                        media,
+                        exoPlayer.currentPosition,
+                        exoPlayer.duration,
+                        season,
+                        episode
+                    )
+                }
+            }
+            
             delay(100)
         }
     }
@@ -509,6 +747,16 @@ private fun ExoPlayerView(
                 androidx.lifecycle.Lifecycle.Event.ON_PAUSE,
                 androidx.lifecycle.Lifecycle.Event.ON_STOP -> {
                     exoPlayer.pause()
+                    // Save progress on pause
+                    internalScope.launch {
+                        repository.updateHistory(
+                            media,
+                            exoPlayer.currentPosition,
+                            exoPlayer.duration,
+                            season,
+                            episode
+                        )
+                    }
                 }
                 else -> {}
             }
@@ -528,25 +776,21 @@ private fun ExoPlayerView(
                 StyledPlayerView(ctx).apply {
                     player = exoPlayer
                     layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                    useController = true
-                    controllerShowTimeoutMs = 3000  // Auto-hide after 3 seconds
-                    setShowNextButton(false)
-                    setShowPreviousButton(false)
-                    resizeMode = com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM  // Fill screen
-                    
-                    // Sync our controls with ExoPlayer's controller visibility
-                    setControllerVisibilityListener(
-                        StyledPlayerView.ControllerVisibilityListener { visibility ->
-                            showControls = (visibility == android.view.View.VISIBLE)
-                        }
-                    )
+                    useController = false  // Disable default controls
                     
                     playerView = this
-                    post { showController() }
+                }
+            },
+            update = { view ->
+                view.resizeMode = when(scalingMode) {
+                    ScalingMode.FIT -> com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    ScalingMode.ZOOM -> com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                    ScalingMode.STRETCH -> com.google.android.exoplayer2.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
+        
         
         // Gesture Controls Overlay with brightness/volume
         GestureControlsOverlay(
@@ -556,59 +800,31 @@ private fun ExoPlayerView(
             modifier = Modifier.fillMaxSize()
         )
         
-        // Auto-hiding controls
-        androidx.compose.animation.AnimatedVisibility(
-            visible = showControls,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
-        ) {
-            Column(
-                horizontalAlignment = Alignment.End
-            ) {
-                FloatingActionButton(
-                    onClick = onShowQualityDialog,
-                    containerColor = Color.Black.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(bottom = 8.dp).size(48.dp)
-                ) { Icon(Icons.Default.Settings, "Quality", tint = Color.White) }
-                
-                FloatingActionButton(
-                    onClick = onShowSubtitleDialog,
-                    containerColor = Color.Black.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(bottom = 8.dp).size(48.dp)
-                ) { 
-                    Icon(Icons.Default.Subtitles, "Subtitles", tint = Color.White)
-                }
-                
-                FloatingActionButton(
-                    onClick = { rotationMode = rotationMode.next() },
-                    containerColor = Color.Black.copy(alpha = 0.6f),
-                    modifier = Modifier.size(48.dp)
-                ) { 
-                    Text(
-                        text = when(rotationMode) {
-                            RotationMode.AUTO -> "AUTO"
-                            RotationMode.PORTRAIT -> "⬆"
-                            RotationMode.LANDSCAPE -> "⬅"
-                        },
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
+        // Double-tap Controls (YouTube-style seek)
+        DoubleTapControls(
+            player = exoPlayer,
+            onToggleControls = { showControls = !showControls },
+            modifier = Modifier.fillMaxSize()
+        )
         
-        androidx.compose.animation.AnimatedVisibility(
+        // Custom Player Controls Overlay
+        CustomPlayerControls(
+            player = exoPlayer,
             visible = showControls,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopStart).padding(16.dp)
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, "Back", tint = Color.White, modifier = Modifier.size(32.dp))
-            }
-        }
+            onVisibilityChange = { showControls = it },
+            onBack = {
+                if (rotationMode == RotationMode.AUTO) {
+                    onBack()
+                } else {
+                    rotationMode = RotationMode.AUTO
+                }
+            },
+            onShowQualityDialog = onShowQualityDialog,
+            onShowSubtitleDialog = onShowSubtitleDialog,
+            onShowSpeedDialog = onShowSpeedDialog,
+            onNextEpisode = onNextEpisode,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
@@ -864,6 +1080,12 @@ private fun SubtitleOverlay(cues: List<SubtitleCue>, currentPositionMs: Long) {
     }
 }
 
+data class SubtitleGroup(
+    val languageName: String,
+    val languageCode: String,
+    val options: List<SubtitleTrack>
+)
+
 @Composable
 private fun SubtitleSelectionDialog(
     tracks: List<SubtitleTrack>,
@@ -871,6 +1093,28 @@ private fun SubtitleSelectionDialog(
     onDismiss: () -> Unit
 ) {
     var selectedTrackLanguage by remember { mutableStateOf<String?>(null) }
+    
+    // Group subtitles by language
+    val groupedSubtitles = remember(tracks) {
+        tracks.groupBy { normalizeLanguageCode(it.language) }
+            .map { (langCode, subtitleList) ->
+                SubtitleGroup(
+                    languageName = getLanguageName(langCode),
+                    languageCode = langCode,
+                    options = subtitleList.mapIndexed { index, subtitle ->
+                        // Add option number if multiple subtitles for same language
+                        if (subtitleList.size > 1) {
+                            subtitle.copy(
+                                label = "${subtitle.label} (Option ${index + 1})"
+                            )
+                        } else {
+                            subtitle
+                        }
+                    }
+                )
+            }
+            .sortedBy { it.languageName }
+    }
     
     // Use event-driven listener instead of polling for better performance
     DisposableEffect(exoPlayer) {
@@ -925,25 +1169,43 @@ private fun SubtitleSelectionDialog(
                     onDismiss()
                 }
                 
-                if (tracks.isNotEmpty()) {
+                if (groupedSubtitles.isNotEmpty()) {
                     Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
                     LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                        items(tracks) { track ->
-                            SubtitleOption(track.label, selectedTrackLanguage == track.language) {
-                                exoPlayer?.let { player ->
-                                    val trackSelector = player.trackSelector as? DefaultTrackSelector
-                                    trackSelector?.parameters = trackSelector?.buildUponParameters()
-                                        ?.setRendererDisabled(getTextRendererIndex(player), false)
-                                        ?.setPreferredTextLanguage(track.language)
-                                        ?.setSelectUndeterminedTextLanguage(true)
-                                        ?.setForceHighestSupportedBitrate(false)
-                                        ?.build() ?: return@let
-                                    selectedTrackLanguage = track.language
-                                    
-                                    // Force ExoPlayer to refresh tracks
-                                    player.prepare()
+                        groupedSubtitles.forEach { group ->
+                            item {
+                                // Language header
+                                Text(
+                                    text = group.languageName,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp)
+                                )
+                            }
+                            
+                            // Options for this language
+                            items(group.options.size) { index ->
+                                val track = group.options[index]
+                                SubtitleOption(track.label, selectedTrackLanguage == track.language) {
+                                    exoPlayer?.let { player ->
+                                        val trackSelector = player.trackSelector as? DefaultTrackSelector
+                                        val newParams = trackSelector?.buildUponParameters()
+                                            ?.setRendererDisabled(getTextRendererIndex(player), false)
+                                            ?.setPreferredTextLanguage(track.language)
+                                            ?.setSelectUndeterminedTextLanguage(true)
+                                            ?.setForceHighestSupportedBitrate(false)
+                                            ?.build()
+                                        if (newParams != null && trackSelector != null) {
+                                            trackSelector.parameters = newParams
+                                        }
+                                        selectedTrackLanguage = track.language
+                                        
+                                        // Force ExoPlayer to refresh tracks
+                                        player.prepare()
+                                    }
+                                    onDismiss()
                                 }
-                                onDismiss()
                             }
                         }
                     }
@@ -953,6 +1215,93 @@ private fun SubtitleSelectionDialog(
                         fontSize = 12.sp,
                         color = Color.Gray,
                         modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AudioSelectionDialog(
+    exoPlayer: ExoPlayer?,
+    onDismiss: () -> Unit
+) {
+    var selectedAudioTrack by remember { mutableStateOf<String?>(null) }
+    var availableAudioTracks by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    
+    // Detect available audio tracks
+    LaunchedEffect(exoPlayer) {
+        exoPlayer?.let { player ->
+            val tracks = player.currentTracks
+            val audioTracks = mutableListOf<Pair<String, String>>()
+            
+            tracks.groups.forEach { group ->
+                if (group.type == com.google.android.exoplayer2.C.TRACK_TYPE_AUDIO && group.length > 0) {
+                    for (i in 0 until group.length) {
+                        val format = group.mediaTrackGroup.getFormat(i)
+                        val language = format.language ?: "Unknown"
+                        val label = "${getLanguageName(normalizeLanguageCode(language))} - ${format.sampleRate / 1000}kHz"
+                        audioTracks.add(Pair(language, label))
+                    }
+                }
+            }
+            availableAudioTracks = audioTracks.distinctBy { it.first }
+            
+            // Find currently selected audio track
+            tracks.groups.find { 
+                it.type == com.google.android.exoplayer2.C.TRACK_TYPE_AUDIO && it.isSelected 
+            }?.let { selectedGroup ->
+                if (selectedGroup.length > 0) {
+                    selectedAudioTrack = selectedGroup.mediaTrackGroup.getFormat(0).language
+                }
+            }
+        }
+    }
+    
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(modifier = Modifier.padding(16.dp).widthIn(max = 300.dp)) {
+                Text("Audio Tracks (${availableAudioTracks.size} available)", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                
+                if (availableAudioTracks.isNotEmpty()) {
+                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                        items(availableAudioTracks.size) { index ->
+                            val (lang, label) = availableAudioTracks[index]
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        exoPlayer?.let { player ->
+                                            val trackSelector = player.trackSelector as? DefaultTrackSelector
+                                            val newParams = trackSelector?.buildUponParameters()
+                                                ?.setPreferredAudioLanguage(lang)
+                                                ?.build()
+                                            if (newParams != null && trackSelector != null) {
+                                                trackSelector.parameters = newParams
+                                            }
+                                            selectedAudioTrack = lang
+                                        }
+                                        onDismiss()
+                                    }
+                                    .padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = selectedAudioTrack == lang,
+                                    onClick = null
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(label, fontSize = 16.sp, color = if (selectedAudioTrack == lang) MaterialTheme.colorScheme.primary else Color.White)
+                            }
+                        }
+                    }
+                } else {
+                    Text(
+                        "No additional audio tracks available",
+                        fontSize = 14.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(vertical = 16.dp)
                     )
                 }
             }
