@@ -18,6 +18,10 @@ data class HomeUiState(
     val popularShows: List<MediaItem> = emptyList(),
     val favorites: List<com.vidora.app.data.local.FavoriteEntity> = emptyList(),
     val history: List<com.vidora.app.data.local.HistoryEntity> = emptyList(),
+    val actionMovies: List<MediaItem> = emptyList(),
+    val comedyMovies: List<MediaItem> = emptyList(),
+    val horrorMovies: List<MediaItem> = emptyList(),
+    val scifiMovies: List<MediaItem> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val canRetry: Boolean = false
@@ -70,9 +74,38 @@ class HomeViewModel @Inject constructor(
                 tvResult
             }
             
+            // Fetch genre-based content (Action=28, Comedy=35, Horror=27, Sci-Fi=878)
+            val actionDeferred = async {
+                var result: NetworkResult<List<MediaItem>>? = null
+                repository.getMoviesByGenre(28).collect { r -> result = r }
+                result
+            }
+            
+            val comedyDeferred = async {
+                var result: NetworkResult<List<MediaItem>>? = null
+                repository.getMoviesByGenre(35).collect { r -> result = r }
+                result
+            }
+            
+            val horrorDeferred = async {
+                var result: NetworkResult<List<MediaItem>>? = null
+                repository.getMoviesByGenre(27).collect { r -> result = r }
+                result
+            }
+            
+            val scifiDeferred = async {
+                var result: NetworkResult<List<MediaItem>>? = null
+                repository.getMoviesByGenre(878).collect { r -> result = r }
+                result
+            }
+            
             // Wait for both to complete
             val moviesResult = moviesDeferred.await()
             val tvResult = tvShowsDeferred.await()
+            val actionResult = actionDeferred.await()
+            val comedyResult = comedyDeferred.await()
+            val horrorResult = horrorDeferred.await()
+            val scifiResult = scifiDeferred.await()
             
             // Update UI based on results
             val hasError = moviesResult is NetworkResult.Error || tvResult is NetworkResult.Error
@@ -86,6 +119,10 @@ class HomeViewModel @Inject constructor(
                 it.copy(
                     trendingMovies = if (moviesResult is NetworkResult.Success) moviesResult.data else emptyList(),
                     popularShows = if (tvResult is NetworkResult.Success) tvResult.data else emptyList(),
+                    actionMovies = if (actionResult is NetworkResult.Success) actionResult.data else emptyList(),
+                    comedyMovies = if (comedyResult is NetworkResult.Success) comedyResult.data else emptyList(),
+                    horrorMovies = if (horrorResult is NetworkResult.Success) horrorResult.data else emptyList(),
+                    scifiMovies = if (scifiResult is NetworkResult.Success) scifiResult.data else emptyList(),
                     isLoading = false,
                     error = errorMessage,
                     canRetry = hasError

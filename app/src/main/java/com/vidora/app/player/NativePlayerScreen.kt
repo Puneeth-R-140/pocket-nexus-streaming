@@ -29,6 +29,8 @@ import com.vidora.app.player.components.DoubleTapControls
 import com.vidora.app.player.components.SpeedControlPanel
 import com.vidora.app.player.components.AutoPlayCountdown
 import androidx.compose.runtime.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -53,6 +55,8 @@ import com.google.android.exoplayer2.MediaItem as ExoMediaItem
 import com.google.android.exoplayer2.Player
 import com.google.android.exoplayer2.trackselection.DefaultTrackSelector
 import com.google.android.exoplayer2.ui.StyledPlayerView
+import com.google.android.exoplayer2.C
+import com.google.android.exoplayer2.trackselection.TrackSelectionParameters
 import com.vidora.app.data.remote.MediaItem as VidoraMediaItem
 import com.vidora.app.ui.components.ErrorStateView
 import kotlinx.coroutines.delay
@@ -101,13 +105,29 @@ fun NativePlayerScreen(
         )
     }
     val repository = remember { entryPoint.repository() }
+    val mediaDetailsState = remember { mutableStateOf(media) }
+    
+    // Fetch details if media info is incomplete (missing poster or title)
+    LaunchedEffect(media.id, media.realMediaType) {
+        val current = mediaDetailsState.value
+        if (current.posterPath == null || current.title == "Loading...") {
+            Log.d(TAG, "Media details incomplete, fetching from API...")
+            repository.getDetails(media.realMediaType, media.id).collect { result ->
+                if (result is NetworkResult.Success) {
+                    Log.d(TAG, "Updated media details: ${result.data.displayTitle}")
+                    mediaDetailsState.value = result.data
+                }
+            }
+        }
+    }
     var state by remember { mutableStateOf<PlayerState>(PlayerState.Loading("Initializing player...")) }
     var extractedUrl by remember { mutableStateOf<String?>(null) }
     var showQualityDialog by remember { mutableStateOf(false) }
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
-    var availableQualities by remember { mutableStateOf<List<VideoQuality>>(emptyList()) }
-    var selectedQuality by remember { mutableStateOf<VideoQuality?>(null) }
+    var parsedQualities by remember { mutableStateOf<List<QualityLevel>>(emptyList()) }
+    var selectedQualityUrl by remember { mutableStateOf<String?>(null) }
+    var masterManifestUrl by remember { mutableStateOf<String?>(null) }
     var exoPlayerInstance by remember { mutableStateOf<ExoPlayer?>(null) }
     val detectedSubtitles = remember { mutableStateMapOf<String, SubtitleTrack>() }
     var webViewKey by remember { mutableStateOf(0) } // For forcing WebView recreation on retry
@@ -117,9 +137,9 @@ fun NativePlayerScreen(
     var nextEpisodeInfo by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var totalEpisodesInSeason by remember { mutableStateOf<Int?>(null) }
     var totalSeasons by remember { mutableStateOf<Int?>(null) }
-    
     // Fetch total seasons
     LaunchedEffect(media.id) {
+
         if (media.realMediaType == "tv") {
             repository.getDetails("tv", media.id).collect { result ->
                 if (result is NetworkResult.Success) {
@@ -137,6 +157,8 @@ fun NativePlayerScreen(
             null to null
         }
     }
+    
+
 
     // Fetch episodes to know when to switch seasons
     LaunchedEffect(media.id, season) {
@@ -253,6 +275,45 @@ fun NativePlayerScreen(
                                 override fun onPageFinished(view: android.webkit.WebView?, url: String?) {
                                     super.onPageFinished(view, url)
                                     Log.d(TAG, "Page finished loading: ${url}")
+                                    
+                                    // Fallback: Extract video src via JavaScript after delay
+                                    view?.postDelayed({
+                                        if (extractedUrl == null && state is PlayerState.Loading) {
+                                            view.evaluateJavascript(
+                                                "(function() { var v = document.querySelector('video'); return v ? v.src || v.currentSrc : null; })()"
+                                            ) { result ->
+                                                val videoSrc = result?.trim('\"')
+                                                if (!videoSrc.isNullOrEmpty() && videoSrc != "null" && videoSrc.contains(".m3u8")) {
+                                                    Log.d(TAG, "Extracted via JavaScript: $videoSrc")
+                                                    extractedUrl = videoSrc
+                                                    scope.launch {
+                                                        state = PlayerState.Loading("Parsing stream manifest...")
+                                                        try {
+                                                            Log.d(TAG, "🔍 Fetching manifest: $videoSrc")
+                                                            val parser = HlsManifestParser()
+                                                            val streamInfo = parser.parseManifest(videoSrc)
+                                                            masterManifestUrl = videoSrc
+                                                            parsedQualities = streamInfo.qualities
+                                                            Log.d(TAG, "✅ Parsed ${streamInfo.qualities.size} quality levels")
+                                                            if (streamInfo.qualities.isEmpty()) {
+                                                                Log.w(TAG, "⚠️ No qualities found - might be direct stream")
+                                                            }
+                                                            state = PlayerState.Playing(streamInfo.copy(subtitles = detectedSubtitles.values.toList()))
+                                                        } catch (e: Exception) {
+                                                            Log.e(TAG, "❌ Failed to parse manifest: ${e.message}", e)
+                                                            masterManifestUrl = videoSrc
+                                                            state = PlayerState.Playing(StreamInfo(videoSrc, detectedSubtitles.values.toList()))
+                                                        }
+                                                    }
+                                                } else if (extractedUrl == null) {
+                                                    Log.e(TAG, "Failed to extract stream URL. JavaScript result: $result")
+                                                    scope.launch {
+                                                        state = PlayerState.Error("Failed to find stream URL. Try again or choose different quality.")
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }, 5000) // Wait 5 seconds for video to load
                                 }
 
                                 override fun shouldInterceptRequest(
@@ -270,12 +331,15 @@ fun NativePlayerScreen(
                                             try {
                                                 val parser = HlsManifestParser()
                                                 val streamInfo = parser.parseManifest(url)
-                                                Log.d(TAG, "Stream ready, ${detectedSubtitles.size} subtitles available from API")
+                                                masterManifestUrl = url
+                                                parsedQualities = streamInfo.qualities
+                                                Log.d(TAG, "Stream ready, ${streamInfo.qualities.size} qualities, ${detectedSubtitles.size} subtitles available from API")
                                                 
                                                 // Use only API-fetched subtitles
                                                 state = PlayerState.Playing(streamInfo.copy(subtitles = detectedSubtitles.values.toList()))
                                             } catch (e: Exception) {
                                                 Log.e(TAG, "Failed to parse manifest, using raw URL", e)
+                                                masterManifestUrl = url
                                                 state = PlayerState.Playing(StreamInfo(url, detectedSubtitles.values.toList()))
                                             }
                                         }
@@ -306,24 +370,9 @@ fun NativePlayerScreen(
                         showAutoPlayCountdown = true
                     },
                     onQualitiesDetected = { qualities, player ->
-                        availableQualities = qualities
                         exoPlayerInstance = player
-                        if (selectedQuality == null && qualities.isNotEmpty()) {
-                            // Auto-select quality based on user preference
-                            val preferredQuality = userSettings?.preferredQuality ?: "Auto"
-                            selectedQuality = when (preferredQuality) {
-                                "720p" -> qualities.find { it.label.contains("720") }
-                                "1080p" -> qualities.find { it.label.contains("1080") }
-                                else -> null // "Auto" - let player decide
-                            } ?: qualities.firstOrNull() // Fallback to first available
-                            
-                            Log.d(TAG, "Auto-selected quality: ${selectedQuality?.label ?: "Auto"} based on preference: $preferredQuality")
-                            
-                            // Apply the quality selection
-                            selectedQuality?.let { quality ->
-                                setVideoQuality(player, quality)
-                            }
-                        }
+                        // Update parsed qualities from ExoPlayer tracks
+                        parsedQualities = qualities
                     },
                     onShowQualityDialog = { showQualityDialog = true },
                     onShowSubtitleDialog = { showSubtitleDialog = true },
@@ -347,7 +396,9 @@ fun NativePlayerScreen(
                            }
                         }
                     } else null,
-                    detectedSubtitles = detectedSubtitles.values.toList()
+                    detectedSubtitles = detectedSubtitles.values.toList(),
+                    selectedQualityUrl = selectedQualityUrl,
+                    masterManifestUrl = masterManifestUrl
                 )
             }
             
@@ -356,13 +407,13 @@ fun NativePlayerScreen(
             }
         }
         
-        if (showQualityDialog && availableQualities.isNotEmpty()) {
-            QualitySelectionDialog(
-                qualities = availableQualities,
-                selectedQuality = selectedQuality,
-                onQualitySelected = { quality ->
-                    selectedQuality = quality
-                    exoPlayerInstance?.let { setVideoQuality(it, quality) }
+        if (showQualityDialog) {
+            ParsedQualityDialog(
+                qualities = parsedQualities,
+                selectedUrl = selectedQualityUrl,
+                masterUrl = masterManifestUrl,
+                onQualitySelected = { qualityUrl ->
+                    selectedQualityUrl = qualityUrl
                     showQualityDialog = false
                 },
                 onDismiss = { showQualityDialog = false }
@@ -509,7 +560,7 @@ private fun extractLanguageFromUrl(url: String): String {
 }
 
 // Helper function to extract season and episode from provider URL
-// URL pattern: https://watch.vidora.su/watch/tv/{id}/{season}/{episode}
+// URL pattern: https://www.vidking.net/embed/tv/{id}/{season}/{episode}
 private fun extractSeasonEpisodeFromUrl(url: String): Pair<Int?, Int?> {
     return try {
         val parts = url.split("/")
@@ -561,12 +612,14 @@ private fun ExoPlayerView(
     onBack: () -> Unit,
     userSettings: com.vidora.app.data.local.SettingsEntity?,
     onVideoEnded: (season: Int, episode: Int) -> Unit,
-    onQualitiesDetected: (List<VideoQuality>, ExoPlayer) -> Unit,
+    onQualitiesDetected: (List<QualityLevel>, ExoPlayer) -> Unit,
     onShowQualityDialog: () -> Unit,
     onShowSubtitleDialog: () -> Unit,
     onShowSpeedDialog: () -> Unit,
     onNextEpisode: (() -> Unit)? = null,
-    detectedSubtitles: List<SubtitleTrack>
+    detectedSubtitles: List<SubtitleTrack>,
+    selectedQualityUrl: String? = null,
+    masterManifestUrl: String? = null
 ) {
     val context = LocalContext.current
     val internalScope = rememberCoroutineScope()
@@ -580,8 +633,25 @@ private fun ExoPlayerView(
     
     val exoPlayer = remember {
         val trackSelector = DefaultTrackSelector(context)
+        
+        // Create custom HTTP data source factory with headers for vidking.net
+        val httpDataSourceFactory = com.google.android.exoplayer2.upstream.DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+            .setDefaultRequestProperties(mapOf(
+                "Referer" to "https://www.vidking.net/",
+                "Origin" to "https://www.vidking.net"
+            ))
+        
         ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector)
+            .setMediaSourceFactory(
+                com.google.android.exoplayer2.source.DefaultMediaSourceFactory(
+                    com.google.android.exoplayer2.upstream.DefaultDataSource.Factory(
+                        context,
+                        httpDataSourceFactory
+                    )
+                )
+            )
             .setSeekBackIncrementMs(10000)
             .setSeekForwardIncrementMs(10000)
             .build()
@@ -632,10 +702,15 @@ private fun ExoPlayerView(
     
     // Apply rotation mode whenever it changes
     
-    // Update MediaItem when subtitles are detected
+    // Update MediaItem when subtitles are detected (Quality changes are handled by TrackSelection now)
     LaunchedEffect(detectedSubtitles.size, streamInfo.streamUrl) {
+        // Always play master manifest or stream URL
+        val urlToPlay = masterManifestUrl ?: streamInfo.streamUrl
+        
+        Log.d(TAG, "Loading stream URL: $urlToPlay (masterManifest used: ${masterManifestUrl != null})")
+        
         val mediaItemBuilder = ExoMediaItem.Builder()
-            .setUri(streamInfo.streamUrl)
+            .setUri(urlToPlay)
         
         // Inject all detected subtitles
         if (detectedSubtitles.isNotEmpty()) {
@@ -658,6 +733,7 @@ private fun ExoPlayerView(
         }
         
         val wasPlaying = exoPlayer.isPlaying
+        val currentPosition = exoPlayer.currentPosition
         
         exoPlayer.setMediaItem(mediaItemBuilder.build())
         exoPlayer.prepare()
@@ -667,14 +743,49 @@ private fun ExoPlayerView(
             exoPlayer.seekTo(pos)
             startupPosition = null // consume it
             Log.d(TAG, "Resumed from $pos")
-        } ?: run {
-            val currentPosition = exoPlayer.currentPosition
-            if (currentPosition > 0) {
-                exoPlayer.seekTo(currentPosition)
-            }
         }
         
-        exoPlayer.playWhenReady = wasPlaying || exoPlayer.currentPosition == 0L
+        exoPlayer.playWhenReady = if (wasPlaying || exoPlayer.currentPosition == 0L) true else exoPlayer.playWhenReady
+    }
+    
+    // Handle Quality Selection via TrackSelector (Seamless switching)
+    LaunchedEffect(selectedQualityUrl, exoPlayer) {
+        val trackSelector = exoPlayer.trackSelector as? DefaultTrackSelector
+        if (trackSelector != null) {
+            val parametersBuilder = trackSelector.buildUponParameters()
+            
+            if (selectedQualityUrl == null) {
+                // Auto mode: Clear constraints
+                parametersBuilder
+                    .setMaxVideoBitrate(Int.MAX_VALUE)
+                    .setMaxVideoSize(Int.MAX_VALUE, Int.MAX_VALUE)
+                    .setForceHighestSupportedBitrate(false)
+                Log.d(TAG, "Reference: Auto quality selected")
+            } else {
+                // Manual mode: We stored the ID or "resolution:bitrate" in selectedQualityUrl
+                
+                // First, find the matching track to get its bitrate
+                val qualities = getExoPlayerQualities(exoPlayer)
+                val selectedQuality = qualities.find { it.url == selectedQualityUrl }
+                
+                if (selectedQuality != null) {
+                    // Restrict max bitrate to the selected quality's bitrate
+                    // This encourages ExoPlayer to pick this track or lower, but usually picks the highest fitting.
+                    // Note: For HLS, setMaxVideoBitrate is the standard way to cap quality.
+                    // If we want to be strict, we can try to set overrides, but that requires renderer indices.
+                    // For now, capping bitrate matches the "limit bandwidth" approach.
+                    parametersBuilder
+                        .setMaxVideoBitrate(selectedQuality.bandwidth)
+                        .setForceHighestSupportedBitrate(true)
+                    
+                    Log.d(TAG, "Quality constraint set to: ${selectedQuality.resolution} (${selectedQuality.bandwidth}bps)")
+                } else {
+                    Log.w(TAG, "Selected quality ID not found: $selectedQualityUrl")
+                }
+            }
+            
+            trackSelector.parameters = parametersBuilder.build()
+        }
     }
     
     // Player state listener
@@ -682,7 +793,10 @@ private fun ExoPlayerView(
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
-                    onQualitiesDetected(getAvailableQualities(exoPlayer), exoPlayer)
+                    // Use helper function to get qualities from ExoPlayer directly
+                    val detectedQualities = getExoPlayerQualities(exoPlayer)
+                    onQualitiesDetected(detectedQualities, exoPlayer)
+                    Log.d(TAG, "Player ready. Detected ${detectedQualities.size} video qualities via TrackSelector")
                     Log.d(TAG, "Player ready, ${detectedSubtitles.size} subtitles available")
                 }
                 if (playbackState == Player.STATE_ENDED) {
@@ -1362,6 +1476,46 @@ private fun QualitySelectionDialog(
 }
 
 @Composable
+private fun ParsedQualityDialog(
+    qualities: List<QualityLevel>,
+    selectedUrl: String?,
+    masterUrl: String?,
+    onQualitySelected: (String?) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
+            Column(modifier = Modifier.padding(16.dp).widthIn(max = 300.dp)) {
+                Text("Video Quality", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
+                
+                // Auto option (master manifest)
+                QualityOption(
+                    label = "Auto (Recommended)", 
+                    isSelected = selectedUrl == null
+                ) { 
+                    onQualitySelected(null)
+                    onDismiss()
+                }
+                
+                Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
+                
+                LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
+                    items(qualities) { quality ->
+                        QualityOption(
+                            label = quality.resolution,
+                            isSelected = selectedUrl == quality.url
+                        ) {
+                            onQualitySelected(quality.url)
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun QualityOption(label: String, isSelected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
@@ -1500,4 +1654,36 @@ private sealed class PlayerState {
     data class Loading(val message: String) : PlayerState()
     data class Playing(val streamInfo: StreamInfo) : PlayerState()
     data class Error(val message: String) : PlayerState()
+}
+
+// Helper function to extract video qualities from ExoPlayer tracks
+private fun getExoPlayerQualities(player: ExoPlayer): List<QualityLevel> {
+    val qualities = mutableListOf<QualityLevel>()
+    val tracks = player.currentTracks
+    
+    tracks.groups.forEach { group ->
+        if (group.type == C.TRACK_TYPE_VIDEO) {
+            for (i in 0 until group.length) {
+                if (group.isTrackSupported(i)) {
+                    val format = group.getTrackFormat(i)
+                    // Filter out tracks without resolution (audio only or text)
+                    if (format.height > 0) {
+                        // Create a unique ID for the track. We use this as the "url" in QualityLevel
+                        // format.id might be null, so fallback to resolution+bitrate
+                        val id = format.id ?: "${format.width}x${format.height}:${format.bitrate}"
+                        
+                        qualities.add(
+                            QualityLevel(
+                                resolution = "${format.height}p", // e.g. 1080p
+                                bandwidth = format.bitrate,
+                                url = id
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    return qualities.distinctBy { it.bandwidth }.sortedByDescending { it.bandwidth }
 }

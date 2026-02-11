@@ -218,10 +218,10 @@ fun DetailsScreen(
                                 // Construct URL for resuming
                                 val resumeUrl = if (progress.season != null && progress.episode != null) {
                                     // TV show - resume specific episode
-                                    "https://watch.vidora.su/watch/tv/${media.id}/${progress.season}/${progress.episode}"
+                                    "https://www.vidking.net/embed/tv/${media.id}/${progress.season}/${progress.episode}"
                                 } else {
                                     // Movie - resume movie
-                                    "https://watch.vidora.su/watch/movie/${media.id}"
+                                    "https://www.vidking.net/embed/movie/${media.id}"
                                 }
                                 onWatchClick(media.id, media.realMediaType, resumeUrl)
                             },
@@ -251,8 +251,8 @@ fun DetailsScreen(
                                 viewModel.markWatched(media)
                             }
                             val finalUrl = when {
-                                media.realMediaType == "tv" -> "https://watch.vidora.su/watch/tv/${media.id}/1/1"
-                                else -> "https://watch.vidora.su/watch/movie/${media.id}"
+                                media.realMediaType == "tv" -> "https://www.vidking.net/embed/tv/${media.id}/1/1"
+                                else -> "https://www.vidking.net/embed/movie/${media.id}"
                             }
                             onWatchClick(media.id, media.realMediaType, finalUrl)
                         },
@@ -386,7 +386,7 @@ fun DetailsScreen(
                             uiState.episodes.forEach { episode ->
                                 EpisodeItem(episode = episode) {
                                     viewModel.markWatched(media, episode.seasonNumber, episode.episodeNumber)
-                                    val episodeUrl = "https://watch.vidora.su/watch/tv/${media.id}/${episode.seasonNumber}/${episode.episodeNumber}"
+                                    val episodeUrl = "https://www.vidking.net/embed/tv/${media.id}/${episode.seasonNumber}/${episode.episodeNumber}"
                                     onWatchClick(media.id, "tv", episodeUrl)
                                 }
                             }

@@ -74,6 +74,22 @@ class MediaRepository @Inject constructor(
         }
         emit(result)
     }
+    
+    fun getMoviesByGenre(genreId: Int): Flow<NetworkResult<List<MediaItem>>> = flow {
+        emit(NetworkResult.Loading)
+        val result = safeApiCall {
+            tmdbService.discoverByGenre("movie", genreId).results
+        }
+        emit(result)
+    }
+    
+    fun getTVShowsByGenre(genreId: Int): Flow<NetworkResult<List<MediaItem>>> = flow {
+        emit(NetworkResult.Loading)
+        val result = safeApiCall {
+            tmdbService.discoverByGenre("tv", genreId).results
+        }
+        emit(result)
+    }
 
     suspend fun getSubtitles(tmdbId: String, mediaType: String, season: Int? = null, episode: Int? = null): List<com.vidora.app.data.remote.SubtitleItem> {
         return try {

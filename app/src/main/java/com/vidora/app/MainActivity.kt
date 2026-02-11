@@ -127,13 +127,21 @@ class MainActivity : ComponentActivity() {
                             val mediaType = backStackEntry.arguments?.getString("mediaType") ?: ""
                             val url = backStackEntry.arguments?.getString("url") ?: ""
                             
+                            val title = backStackEntry.arguments?.getString("title")?.let { 
+                                java.net.URLDecoder.decode(it, "UTF-8") 
+                            } ?: if (mediaType == "movie") "Loading..." else null
+                            
+                            val posterPath = backStackEntry.arguments?.getString("poster")?.let {
+                                if (it == "null") null else java.net.URLDecoder.decode(it, "UTF-8")
+                            }
+
                             // Create minimal media object for player
                             val media = com.vidora.app.data.remote.MediaItem(
                                 id = mediaId,
-                                title = if (mediaType == "movie") "Loading..." else null,
-                                name = if (mediaType == "tv") "Loading..." else null,
+                                title = if (mediaType == "movie") title else null,
+                                name = if (mediaType == "tv") title else null,
                                 overview = null,
-                                posterPath = null,
+                                posterPath = posterPath,
                                 backdropPath = null,
                                 voteAverage = 0.0,
                                 releaseDate = null,
@@ -161,12 +169,12 @@ class MainActivity : ComponentActivity() {
                                     
                                     // Handle different URL patterns by reconstructing completely
                                     val nextEpisodeUrl = when {
-                                        decodedUrl.contains("watch.vidora.su") -> {
-                                            "https://watch.vidora.su/watch/tv/$mediaId/$nextSeason/$nextEpisode"
+                                        decodedUrl.contains("vidking.net") -> {
+                                            "https://www.vidking.net/embed/tv/$mediaId/$nextSeason/$nextEpisode"
                                         }
                                         else -> {
-                                            // Default to vidsrc.xyz format which works reliably
-                                            "https://vidsrc.xyz/embed/tv/$mediaId/$nextSeason/$nextEpisode"
+                                            // Fallback to vidking.net
+                                            "https://www.vidking.net/embed/tv/$mediaId/$nextSeason/$nextEpisode"
                                         }
                                     }
                                     

@@ -93,6 +93,47 @@ fun HomeScreen(
                     }
                 }
                 
+                // Genre sections
+                if (uiState.actionMovies.isNotEmpty()) {
+                    item {
+                       MediaSection(
+                            title = "Action Movies",
+                            items = uiState.actionMovies,
+                            onMediaClick = onMediaClick
+                        )
+                    }
+                }
+                
+                if (uiState.comedyMovies.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Comedy Movies",
+                            items = uiState.comedyMovies,
+                            onMediaClick = onMediaClick
+                        )
+                    }
+                }
+                
+                if (uiState.horrorMovies.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Horror Movies",
+                            items = uiState.horrorMovies,
+                            onMediaClick = onMediaClick
+                        )
+                    }
+                }
+                
+                if (uiState.scifiMovies.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Sci-Fi Movies",
+                            items = uiState.scifiMovies,
+                            onMediaClick = onMediaClick
+                        )
+                    }
+                }
+                
                 if (uiState.trendingMovies.isEmpty() && uiState.popularShows.isEmpty() && !uiState.isLoading) {
                     item {
                         EmptyStateView(message = "No content available right now.")

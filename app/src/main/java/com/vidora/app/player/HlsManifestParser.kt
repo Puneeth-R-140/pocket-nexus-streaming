@@ -1,5 +1,6 @@
 package com.vidora.app.player
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.URL
@@ -29,6 +30,10 @@ data class QualityLevel(
  * Parses HLS manifest to extract subtitle tracks and quality levels
  */
 class HlsManifestParser {
+    
+    companion object {
+        private const val TAG = "HlsManifestParser"
+    }
     
     suspend fun parseManifest(manifestUrl: String): StreamInfo = withContext(Dispatchers.IO) {
         try {
@@ -76,6 +81,8 @@ class HlsManifestParser {
     private fun parseQualities(manifest: String, baseUrl: String): List<QualityLevel> {
         val qualities = mutableListOf<QualityLevel>()
         val lines = manifest.lines()
+        Log.d(TAG, "📊 Parsing manifest: ${lines.size} lines, first 10:")
+        lines.take(10).forEach { Log.d(TAG, "  $it") }
         
         var i = 0
         while (i < lines.size) {
@@ -83,8 +90,10 @@ class HlsManifestParser {
             
             // Look for quality variants: #EXT-X-STREAM-INF
             if (line.startsWith("#EXT-X-STREAM-INF:")) {
+                Log.d(TAG, "✅ STREAM-INF found: $line")
                 val bandwidth = extractAttribute(line, "BANDWIDTH")?.toIntOrNull() ?: 0
                 val resolution = extractAttribute(line, "RESOLUTION") ?: "Auto"
+                Log.d(TAG, "  Resolution=$resolution, Bandwidth=$bandwidth")
                 
                 // Next line should be the URL
                 if (i + 1 < lines.size) {
@@ -98,6 +107,7 @@ class HlsManifestParser {
             i++
         }
         
+        Log.d(TAG, "📊 Total qualities found: ${qualities.size}")
         return qualities.sortedByDescending { it.bandwidth }
     }
     

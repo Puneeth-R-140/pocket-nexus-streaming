@@ -43,4 +43,12 @@ interface TmdbService {
         @Path("id") id: String,
         @Query("page") page: Int = 1
     ): TmdbResponse<MediaItem>
+    
+    @GET("discover/{media_type}")
+    suspend fun discoverByGenre(
+        @Path("media_type") mediaType: String,
+        @Query("with_genres") genreId: Int,
+        @Query("page") page: Int = 1,
+        @Query("sort_by") sortBy: String = "popularity.desc"
+    ): TmdbResponse<MediaItem>
 }

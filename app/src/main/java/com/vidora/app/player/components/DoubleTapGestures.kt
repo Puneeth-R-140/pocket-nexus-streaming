@@ -75,12 +75,18 @@ fun DoubleTapControls(
                                 // Left side - seek backward
                                 tapCount++
                                 player.seekTo((player.currentPosition - 10000).coerceAtLeast(0))
+                                if (player.playbackState == com.google.android.exoplayer2.Player.STATE_ENDED) {
+                                    player.play()
+                                }
                                 doubleTapState = DoubleTapState(SeekDirection.BACKWARD, tapCount)
                             }
                             x > screenWidth * 0.65f -> {
                                 // Right side - seek forward
                                 tapCount++
                                 player.seekTo(player.currentPosition + 10000)
+                                if (player.playbackState == com.google.android.exoplayer2.Player.STATE_ENDED) {
+                                    player.play()
+                                }
                                 doubleTapState = DoubleTapState(SeekDirection.FORWARD, tapCount)
                             }
                         }

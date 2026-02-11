@@ -16,8 +16,8 @@ android {
         applicationId = "com.vidora.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 4
-        versionName = "2.0.1"
+        versionCode = 5
+        versionName = "2.5.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -63,6 +63,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.1"

@@ -33,7 +33,7 @@ class UpdateViewModel @Inject constructor() : ViewModel() {
     private val _uiState = MutableStateFlow(UpdateUiState())
     val uiState: StateFlow<UpdateUiState> = _uiState
     
-    private val currentVersionCode = 1  // Update this with each release
+    private val currentVersion = com.vidora.app.BuildConfig.VERSION_NAME
     private val githubRepo = "Puneeth-R-140/pocket-nexus-streaming"
     
     fun checkForUpdates() {
@@ -46,18 +46,18 @@ class UpdateViewModel @Inject constructor() : ViewModel() {
                 val json = org.json.JSONObject(response)
                 
                 val tagName = json.getString("tag_name") // e.g., "v1.2.0"
-                val versionCode = tagName.replace("v", "").replace(".", "").toIntOrNull() ?: 0
+                val remoteVersion = tagName.removePrefix("v")
                 val releaseNotes = json.optString("body", "No release notes available")
                 val downloadUrl = json.getString("html_url")
                 
-                if (versionCode > currentVersionCode) {
+                if (isNewerVersion(remoteVersion, currentVersion)) {
                     _uiState.update {
                         it.copy(
                             isChecking = false,
                             updateAvailable = true,
                             updateInfo = UpdateInfo(
                                 versionName = tagName,
-                                versionCode = versionCode,
+                                versionCode = 0, // Not used for comparison anymore
                                 releaseNotes = releaseNotes,
                                 downloadUrl = downloadUrl
                             )
@@ -78,5 +78,20 @@ class UpdateViewModel @Inject constructor() : ViewModel() {
                 }
             }
         }
+    }
+
+
+    private fun isNewerVersion(remote: String, current: String): Boolean {
+        val remoteParts = remote.split(".").map { it.toIntOrNull() ?: 0 }
+        val currentParts = current.split(".").map { it.toIntOrNull() ?: 0 }
+        
+        val length = maxOf(remoteParts.size, currentParts.size)
+        for (i in 0 until length) {
+            val r = remoteParts.getOrElse(i) { 0 }
+            val c = currentParts.getOrElse(i) { 0 }
+            if (r > c) return true
+            if (r < c) return false
+        }
+        return false
     }
 }
