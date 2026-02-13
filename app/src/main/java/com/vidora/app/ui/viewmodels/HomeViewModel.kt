@@ -16,12 +16,14 @@ import javax.inject.Inject
 data class HomeUiState(
     val trendingMovies: List<MediaItem> = emptyList(),
     val popularShows: List<MediaItem> = emptyList(),
-    val favorites: List<com.vidora.app.data.local.FavoriteEntity> = emptyList(),
-    val history: List<com.vidora.app.data.local.HistoryEntity> = emptyList(),
     val actionMovies: List<MediaItem> = emptyList(),
     val comedyMovies: List<MediaItem> = emptyList(),
-    val horrorMovies: List<MediaItem> = emptyList(),
     val scifiMovies: List<MediaItem> = emptyList(),
+    val dramaShows: List<MediaItem> = emptyList(),
+    val animationShows: List<MediaItem> = emptyList(),
+    val documentaries: List<MediaItem> = emptyList(),
+    val favorites: List<com.vidora.app.data.local.FavoriteEntity> = emptyList(),
+    val history: List<com.vidora.app.data.local.HistoryEntity> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val canRetry: Boolean = false
@@ -57,78 +59,53 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null, canRetry = false) }
             
-            // Launch both requests in parallel using async
-            val moviesDeferred = async {
-                var moviesResult: NetworkResult<List<MediaItem>>? = null
-                repository.getTrendingMovies().collect { result ->
-                    moviesResult = result
-                }
-                moviesResult
-            }
+            // Launch all requests in parallel
+            val moviesDeferred = async { getList { repository.getTrendingMovies() } }
+            val tvDeferred = async { getList { repository.getTrendingTVShows() } }
+            val actionDeferred = async { getList { repository.getMoviesByGenre("28") } }
+            val comedyDeferred = async { getList { repository.getMoviesByGenre("35") } }
+            val scifiDeferred = async { getList { repository.getMoviesByGenre("878") } }
+            val dramaDeferred = async { getList { repository.getTvShowsByGenre("18") } }
+            val animeDeferred = async { getList { repository.getTvShowsByGenre("16") } }
+            val docDeferred = async { getList { repository.getTvShowsByGenre("99") } }
             
-            val tvShowsDeferred = async {
-                var tvResult: NetworkResult<List<MediaItem>>? = null
-                repository.getTrendingTVShows().collect { result ->
-                    tvResult = result
-                }
-                tvResult
-            }
-            
-            // Fetch genre-based content (Action=28, Comedy=35, Horror=27, Sci-Fi=878)
-            val actionDeferred = async {
-                var result: NetworkResult<List<MediaItem>>? = null
-                repository.getMoviesByGenre(28).collect { r -> result = r }
-                result
-            }
-            
-            val comedyDeferred = async {
-                var result: NetworkResult<List<MediaItem>>? = null
-                repository.getMoviesByGenre(35).collect { r -> result = r }
-                result
-            }
-            
-            val horrorDeferred = async {
-                var result: NetworkResult<List<MediaItem>>? = null
-                repository.getMoviesByGenre(27).collect { r -> result = r }
-                result
-            }
-            
-            val scifiDeferred = async {
-                var result: NetworkResult<List<MediaItem>>? = null
-                repository.getMoviesByGenre(878).collect { r -> result = r }
-                result
-            }
-            
-            // Wait for both to complete
             val moviesResult = moviesDeferred.await()
-            val tvResult = tvShowsDeferred.await()
+            val tvResult = tvDeferred.await()
             val actionResult = actionDeferred.await()
             val comedyResult = comedyDeferred.await()
-            val horrorResult = horrorDeferred.await()
             val scifiResult = scifiDeferred.await()
+            val dramaResult = dramaDeferred.await()
+            val animeResult = animeDeferred.await()
+            val docResult = docDeferred.await()
             
-            // Update UI based on results
-            val hasError = moviesResult is NetworkResult.Error || tvResult is NetworkResult.Error
-            val errorMessage = when {
-                moviesResult is NetworkResult.Error -> moviesResult.message
-                tvResult is NetworkResult.Error -> tvResult.message
-                else -> null
-            }
+            val hasError = moviesResult == null && tvResult == null 
             
             _uiState.update {
                 it.copy(
-                    trendingMovies = if (moviesResult is NetworkResult.Success) moviesResult.data else emptyList(),
-                    popularShows = if (tvResult is NetworkResult.Success) tvResult.data else emptyList(),
-                    actionMovies = if (actionResult is NetworkResult.Success) actionResult.data else emptyList(),
-                    comedyMovies = if (comedyResult is NetworkResult.Success) comedyResult.data else emptyList(),
-                    horrorMovies = if (horrorResult is NetworkResult.Success) horrorResult.data else emptyList(),
-                    scifiMovies = if (scifiResult is NetworkResult.Success) scifiResult.data else emptyList(),
+                    trendingMovies = moviesResult ?: emptyList(),
+                    popularShows = tvResult ?: emptyList(),
+                    actionMovies = actionResult ?: emptyList(),
+                    comedyMovies = comedyResult ?: emptyList(),
+                    scifiMovies = scifiResult ?: emptyList(),
+                    dramaShows = dramaResult ?: emptyList(),
+                    animationShows = animeResult ?: emptyList(),
+                    documentaries = docResult ?: emptyList(),
                     isLoading = false,
-                    error = errorMessage,
+                    error = if (hasError) "Failed to load content" else null,
                     canRetry = hasError
                 )
             }
         }
+    }
+    
+    private suspend fun getList(call: () -> Flow<NetworkResult<List<MediaItem>>>): List<MediaItem>? {
+        var resultList: List<MediaItem>? = null
+        call().collect { result ->
+            if (result is NetworkResult.Success) {
+                resultList = result.data
+            }
+        }
+        return resultList
     }
     
     fun retry() {

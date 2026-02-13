@@ -28,12 +28,13 @@ data class UpdateUiState(
 )
 
 @HiltViewModel
-class UpdateViewModel @Inject constructor() : ViewModel() {
+class UpdateViewModel @Inject constructor(
+    private val okHttpClient: okhttp3.OkHttpClient
+) : ViewModel() {
     
     private val _uiState = MutableStateFlow(UpdateUiState())
     val uiState: StateFlow<UpdateUiState> = _uiState
     
-    private val currentVersion = com.vidora.app.BuildConfig.VERSION_NAME
     private val githubRepo = "Puneeth-R-140/pocket-nexus-streaming"
     
     fun checkForUpdates() {
@@ -41,16 +42,29 @@ class UpdateViewModel @Inject constructor() : ViewModel() {
         
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val url = "https://api.github.com/repos/$githubRepo/releases/latest"
-                val response = URL(url).readText()
-                val json = org.json.JSONObject(response)
+                // Use OkHttp for better network handling and timeouts
+                val request = okhttp3.Request.Builder()
+                    .url("https://api.github.com/repos/$githubRepo/releases/latest")
+                    .build()
+                
+                val response = okHttpClient.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    throw Exception("GitHub API Error: ${response.code}")
+                }
+                
+                val responseBody = response.body?.string() ?: throw Exception("Empty response body")
+                val json = org.json.JSONObject(responseBody)
                 
                 val tagName = json.getString("tag_name") // e.g., "v1.2.0"
-                val remoteVersion = tagName.removePrefix("v")
                 val releaseNotes = json.optString("body", "No release notes available")
                 val downloadUrl = json.getString("html_url")
                 
-                if (isNewerVersion(remoteVersion, currentVersion)) {
+                // Get current app version from BuildConfig
+                val currentVersionName = com.vidora.app.BuildConfig.VERSION_NAME
+                
+                Log.d("UpdateCheck", "Current: $currentVersionName, Latest: $tagName")
+                
+                if (isNewerVersion(currentVersionName, tagName)) {
                     _uiState.update {
                         it.copy(
                             isChecking = false,
@@ -80,18 +94,26 @@ class UpdateViewModel @Inject constructor() : ViewModel() {
         }
     }
 
-
-    private fun isNewerVersion(remote: String, current: String): Boolean {
-        val remoteParts = remote.split(".").map { it.toIntOrNull() ?: 0 }
-        val currentParts = current.split(".").map { it.toIntOrNull() ?: 0 }
-        
-        val length = maxOf(remoteParts.size, currentParts.size)
-        for (i in 0 until length) {
-            val r = remoteParts.getOrElse(i) { 0 }
-            val c = currentParts.getOrElse(i) { 0 }
-            if (r > c) return true
-            if (r < c) return false
+    private fun isNewerVersion(current: String, latest: String): Boolean {
+        fun parseVersion(version: String): List<Int> {
+            return version.replace("v", "")
+                .split(".")
+                .mapNotNull { it.toIntOrNull() }
         }
+
+        val currentParts = parseVersion(current)
+        val latestParts = parseVersion(latest)
+
+        val length = maxOf(currentParts.size, latestParts.size)
+
+        for (i in 0 until length) {
+            val v1 = currentParts.getOrElse(i) { 0 }
+            val v2 = latestParts.getOrElse(i) { 0 }
+            
+            if (v2 > v1) return true
+            if (v2 < v1) return false
+        }
+        
         return false
     }
 }

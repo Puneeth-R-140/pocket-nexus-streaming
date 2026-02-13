@@ -40,6 +40,24 @@ class MediaRepository @Inject constructor(
         emit(result)
     }
 
+    fun getMoviesByGenre(genreId: String): Flow<NetworkResult<List<MediaItem>>> = flow {
+        emit(NetworkResult.Loading)
+        val result = safeApiCall {
+            val response = tmdbService.discoverMovie(genreId)
+            response.results
+        }
+        emit(result)
+    }
+
+    fun getTvShowsByGenre(genreId: String): Flow<NetworkResult<List<MediaItem>>> = flow {
+        emit(NetworkResult.Loading)
+        val result = safeApiCall {
+            val response = tmdbService.discoverTv(genreId)
+            response.results
+        }
+        emit(result)
+    }
+
     fun search(query: String): Flow<NetworkResult<List<MediaItem>>> = flow {
         emit(NetworkResult.Loading)
         val result = safeApiCall {
@@ -71,22 +89,6 @@ class MediaRepository @Inject constructor(
         emit(NetworkResult.Loading)
         val result = safeApiCall {
             tmdbService.getRecommendations(mediaType, id).results
-        }
-        emit(result)
-    }
-    
-    fun getMoviesByGenre(genreId: Int): Flow<NetworkResult<List<MediaItem>>> = flow {
-        emit(NetworkResult.Loading)
-        val result = safeApiCall {
-            tmdbService.discoverByGenre("movie", genreId).results
-        }
-        emit(result)
-    }
-    
-    fun getTVShowsByGenre(genreId: Int): Flow<NetworkResult<List<MediaItem>>> = flow {
-        emit(NetworkResult.Loading)
-        val result = safeApiCall {
-            tmdbService.discoverByGenre("tv", genreId).results
         }
         emit(result)
     }

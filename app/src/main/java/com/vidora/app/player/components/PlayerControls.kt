@@ -125,9 +125,6 @@ fun CustomPlayerControls(
                     },
                     onSeek = { position ->
                         player.seekTo(position)
-                        if (player.playbackState == com.google.android.exoplayer2.Player.STATE_ENDED) {
-                            player.play()
-                        }
                     },
                     onShowQualityDialog = onShowQualityDialog,
                     onShowSubtitleDialog = onShowSubtitleDialog,

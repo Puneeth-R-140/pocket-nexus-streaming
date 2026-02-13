@@ -93,10 +93,9 @@ fun HomeScreen(
                     }
                 }
                 
-                // Genre sections
                 if (uiState.actionMovies.isNotEmpty()) {
                     item {
-                       MediaSection(
+                        MediaSection(
                             title = "Action Movies",
                             items = uiState.actionMovies,
                             onMediaClick = onMediaClick
@@ -114,21 +113,41 @@ fun HomeScreen(
                     }
                 }
                 
-                if (uiState.horrorMovies.isNotEmpty()) {
+                if (uiState.scifiMovies.isNotEmpty()) {
                     item {
                         MediaSection(
-                            title = "Horror Movies",
-                            items = uiState.horrorMovies,
+                            title = "Sci-Fi & Fantasy",
+                            items = uiState.scifiMovies,
                             onMediaClick = onMediaClick
                         )
                     }
                 }
                 
-                if (uiState.scifiMovies.isNotEmpty()) {
+                if (uiState.dramaShows.isNotEmpty()) {
                     item {
                         MediaSection(
-                            title = "Sci-Fi Movies",
-                            items = uiState.scifiMovies,
+                            title = "Drama Series",
+                            items = uiState.dramaShows,
+                            onMediaClick = onMediaClick
+                        )
+                    }
+                }
+                
+                if (uiState.animationShows.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Animation",
+                            items = uiState.animationShows,
+                            onMediaClick = onMediaClick
+                        )
+                    }
+                }
+                
+                if (uiState.documentaries.isNotEmpty()) {
+                    item {
+                        MediaSection(
+                            title = "Documentaries",
+                            items = uiState.documentaries,
                             onMediaClick = onMediaClick
                         )
                     }
