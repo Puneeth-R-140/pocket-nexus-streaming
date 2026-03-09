@@ -18,44 +18,70 @@ class MediaRepository @Inject constructor(
     private val omdbService: com.vidora.app.data.remote.OmdbService,
     private val mediaDao: MediaDao
 ) {
+    private val gson = com.google.gson.Gson()
+
     fun getTrendingMovies(): Flow<NetworkResult<List<MediaItem>>> = flow {
-        emit(NetworkResult.Loading)
+        emit(getCachedOrDefault("trending_movies"))
         val result = retryApiCall {
             safeApiCall {
                 val response = tmdbService.getTrending("movie")
-                response.results
+                response.results.also { cacheSection("trending_movies", it) }
             }
         }
-        emit(result)
+        if (result is NetworkResult.Success) emit(result)
     }
 
     fun getTrendingTVShows(): Flow<NetworkResult<List<MediaItem>>> = flow {
-        emit(NetworkResult.Loading)
+        emit(getCachedOrDefault("trending_tv"))
         val result = retryApiCall {
             safeApiCall {
                 val response = tmdbService.getTrending("tv")
-                response.results
+                response.results.also { cacheSection("trending_tv", it) }
             }
         }
-        emit(result)
+        if (result is NetworkResult.Success) emit(result)
     }
 
     fun getMoviesByGenre(genreId: String): Flow<NetworkResult<List<MediaItem>>> = flow {
-        emit(NetworkResult.Loading)
+        emit(getCachedOrDefault("movies_genre_$genreId"))
         val result = safeApiCall {
             val response = tmdbService.discoverMovie(genreId)
-            response.results
+            response.results.also { cacheSection("movies_genre_$genreId", it) }
         }
-        emit(result)
+        if (result is NetworkResult.Success) emit(result)
     }
 
     fun getTvShowsByGenre(genreId: String): Flow<NetworkResult<List<MediaItem>>> = flow {
-        emit(NetworkResult.Loading)
+        emit(getCachedOrDefault("tv_genre_$genreId"))
         val result = safeApiCall {
             val response = tmdbService.discoverTv(genreId)
-            response.results
+            response.results.also { cacheSection("tv_genre_$genreId", it) }
         }
-        emit(result)
+        if (result is NetworkResult.Success) emit(result)
+    }
+
+    private suspend fun getCachedOrDefault(sectionId: String): NetworkResult<List<MediaItem>> {
+        return try {
+            val cached = mediaDao.getHomeCache(sectionId)
+            if (cached != null) {
+                val type = object : com.google.gson.reflect.TypeToken<List<MediaItem>>() {}.type
+                val items: List<MediaItem> = gson.fromJson(cached.data, type)
+                NetworkResult.Success(items)
+            } else {
+                NetworkResult.Loading
+            }
+        } catch (e: Exception) {
+            NetworkResult.Loading
+        }
+    }
+
+    private suspend fun cacheSection(sectionId: String, items: List<MediaItem>) {
+        try {
+            val json = gson.toJson(items)
+            mediaDao.insertHomeCache(com.vidora.app.data.local.HomeCacheEntity(sectionId, json))
+        } catch (e: Exception) {
+            // Log or ignore
+        }
     }
 
     fun search(query: String): Flow<NetworkResult<List<MediaItem>>> = flow {
@@ -126,14 +152,35 @@ class MediaRepository @Inject constructor(
         return mediaDao.getHistoryItem(compositeId)
     }
 
+    suspend fun getMostRecentHistoryItem(mediaId: String): com.vidora.app.data.local.HistoryEntity? {
+        return mediaDao.getMostRecentHistoryItem(mediaId)
+    }
+
+    fun getAllHistoryForMedia(mediaId: String): Flow<List<com.vidora.app.data.local.HistoryEntity>> {
+        return mediaDao.getAllHistoryForMedia(mediaId)
+    }
+
     suspend fun updateHistory(media: MediaItem, positionMs: Long, durationMs: Long, season: Int? = null, episode: Int? = null) {
         val compositeId = if (season != null && episode != null) "${media.id}_s${season}_e${episode}" else media.id
+        
+        // Safety Guard: Don't let "Loading..." placeholder overwrite valid metadata
+        var finalTitle = media.displayTitle
+        var finalPoster = media.posterPath
+        
+        if (finalTitle == "Loading...") {
+            val existing = mediaDao.getHistoryItem(compositeId)
+            if (existing != null && existing.title != "Loading...") {
+                finalTitle = existing.title
+                finalPoster = existing.posterPath ?: finalPoster
+            }
+        }
+
         mediaDao.updateHistory(
             com.vidora.app.data.local.HistoryEntity(
                 id = compositeId,
                 mediaId = media.id,
-                title = media.displayTitle,
-                posterPath = media.posterPath,
+                title = finalTitle,
+                posterPath = finalPoster,
                 mediaType = media.realMediaType,
                 positionMs = positionMs,
                 durationMs = durationMs,

@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -37,28 +38,41 @@ fun HomeScreen(
     onSettingsClick: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    
+    // Memoize mapped lists so Coil image keys don't change on every recompose
+    val historyAsItems = remember(uiState.history) { uiState.history.map { it.toMediaItem() } }
+    val favoritesAsItems = remember(uiState.favorites) { uiState.favorites.map { it.toMediaItem() } }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (uiState.isLoading && uiState.trendingMovies.isEmpty()) {
             ShimmerHomeScreen(onSearchClick, onSettingsClick)
         } else if (uiState.error != null && uiState.trendingMovies.isEmpty()) {
-            ErrorStateView(
-                message = uiState.error ?: "Unknown error",
-                onRetry = { viewModel.retry() }
-            )
+            androidx.compose.foundation.layout.Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                ErrorStateView(
+                    message = (uiState.error ?: "Unknown error"),
+                    onRetry = { viewModel.retry() }
+                )
+            }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 item { 
-                    HeaderSection(onSearchClick = onSearchClick, onSettingsClick = onSettingsClick) 
+                    HeaderSection(
+                        onSearchClick = onSearchClick,
+                        onSettingsClick = onSettingsClick
+                    ) 
                 }
 
                 if (uiState.history.isNotEmpty()) {
                     item {
                         MediaSection(
                             title = "Continue Watching",
-                            items = uiState.history.map { it.toMediaItem() },
+                            items = historyAsItems,
                             onMediaClick = onMediaClick,
-                            historyItems = uiState.history
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -67,8 +81,9 @@ fun HomeScreen(
                     item {
                         MediaSection(
                             title = "My Favorites",
-                            items = uiState.favorites.map { it.toMediaItem() },
-                            onMediaClick = onMediaClick
+                            items = favoritesAsItems,
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -78,7 +93,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Trending Movies",
                             items = uiState.trendingMovies,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -88,7 +104,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Popular TV Shows",
                             items = uiState.popularShows,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -98,7 +115,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Action Movies",
                             items = uiState.actionMovies,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -108,7 +126,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Comedy Movies",
                             items = uiState.comedyMovies,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -118,7 +137,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Sci-Fi & Fantasy",
                             items = uiState.scifiMovies,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -128,7 +148,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Drama Series",
                             items = uiState.dramaShows,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -138,7 +159,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Animation",
                             items = uiState.animationShows,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -148,7 +170,8 @@ fun HomeScreen(
                         MediaSection(
                             title = "Documentaries",
                             items = uiState.documentaries,
-                            onMediaClick = onMediaClick
+                            onMediaClick = onMediaClick,
+                            historyMap = uiState.historyMap
                         )
                     }
                 }
@@ -216,7 +239,10 @@ fun ShimmerHomeScreen(onSearchClick: () -> Unit, onSettingsClick: () -> Unit) {
 }
 
 @Composable
-fun HeaderSection(onSearchClick: () -> Unit, onSettingsClick: () -> Unit) {
+fun HeaderSection(
+    onSearchClick: () -> Unit,
+    onSettingsClick: () -> Unit
+) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -261,7 +287,7 @@ fun MediaSection(
     title: String,
     items: List<MediaItem>,
     onMediaClick: (MediaItem) -> Unit,
-    historyItems: List<com.vidora.app.data.local.HistoryEntity>? = null
+    historyMap: Map<String, com.vidora.app.data.local.HistoryEntity> = emptyMap()
 ) {
     Column(modifier = Modifier.padding(vertical = 8.dp)) {
         Text(
@@ -275,9 +301,12 @@ fun MediaSection(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(items.size) { index ->
+            items(
+                count = items.size,
+                key = { index -> items[index].id }
+            ) { index ->
                 val item = items[index]
-                val history = historyItems?.getOrNull(index)
+                val history = historyMap[item.id]
                 val progress = if (history != null && history.durationMs > 0) {
                     history.positionMs.toFloat() / history.durationMs.toFloat()
                 } else null

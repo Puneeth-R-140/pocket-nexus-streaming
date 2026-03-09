@@ -55,7 +55,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttpClient(
+    fun provideBaseOkHttpClient(
         loggingInterceptor: HttpLoggingInterceptor,
         cacheInterceptor: Interceptor,
         cache: Cache
@@ -72,9 +72,29 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideTmdbService(okHttpClient: OkHttpClient): TmdbService {
+    @javax.inject.Named("tmdbClient")
+    fun provideTmdbOkHttpClient(
+        baseClient: OkHttpClient
+    ): OkHttpClient {
+        // Intercept TMDB requests and inject the TMDB API key as a query param
+        val tmdbAuthInterceptor = Interceptor { chain ->
+            val original = chain.request()
+            val url = original.url.newBuilder()
+                .addQueryParameter("api_key", "4ef0d7355d9ffb5151e987764708ce96") // TMDB v3 key
+                .addQueryParameter("language", "en-US")
+                .build()
+            chain.proceed(original.newBuilder().url(url).build())
+        }
+        return baseClient.newBuilder()
+            .addInterceptor(tmdbAuthInterceptor)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideTmdbService(@javax.inject.Named("tmdbClient") okHttpClient: OkHttpClient): TmdbService {
         return Retrofit.Builder()
-            .baseUrl("https://themoviedb.vidora.su/api/tmdb/")
+            .baseUrl("https://api.themoviedb.org/3/") // Real TMDB API
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
@@ -86,7 +106,7 @@ object NetworkModule {
     fun provideSubtitleService(okHttpClient: OkHttpClient): com.vidora.app.data.remote.SubtitleService {
         return Retrofit.Builder()
             .baseUrl("https://sub.wyzie.ru/")
-            .client(okHttpClient)
+            .client(okHttpClient) // Uses base (clean) client
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(com.vidora.app.data.remote.SubtitleService::class.java)

@@ -8,9 +8,10 @@ import androidx.room.RoomDatabase
         FavoriteEntity::class, 
         HistoryEntity::class, 
         DownloadEntity::class, 
-        SettingsEntity::class
+        SettingsEntity::class,
+        HomeCacheEntity::class
     ], 
-    version = 3, 
+    version = 7, 
     exportSchema = false
 )
 abstract class VidoraDatabase : RoomDatabase() {

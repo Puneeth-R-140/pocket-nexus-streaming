@@ -266,7 +266,7 @@ private fun BottomControls(
                 }
             }
             
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Quality button
                 IconButton(onClick = onShowQualityDialog) {
                     Icon(
@@ -286,6 +286,7 @@ private fun BottomControls(
                         modifier = Modifier.size(24.dp)
                     )
                 }
+                
                 
                 // Speed button
                 IconButton(onClick = onShowSpeedDialog) {

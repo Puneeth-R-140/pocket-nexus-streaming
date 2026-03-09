@@ -17,11 +17,25 @@ interface MediaDao {
     @Query("SELECT EXISTS(SELECT * FROM favorites WHERE id = :id)")
     suspend fun isFavorite(id: String): Boolean
 
-    @Query("SELECT * FROM watch_history ORDER BY lastWatchedAt DESC")
+    @Query("""
+        SELECT * FROM watch_history 
+        WHERE lastWatchedAt = (
+            SELECT MAX(lastWatchedAt) 
+            FROM watch_history h2 
+            WHERE h2.mediaId = watch_history.mediaId
+        )
+        ORDER BY lastWatchedAt DESC
+    """)
     fun getWatchHistory(): Flow<List<HistoryEntity>>
 
     @Query("SELECT * FROM watch_history WHERE id = :id")
     suspend fun getHistoryItem(id: String): HistoryEntity?
+
+    @Query("SELECT * FROM watch_history WHERE mediaId = :mediaId ORDER BY lastWatchedAt DESC LIMIT 1")
+    suspend fun getMostRecentHistoryItem(mediaId: String): HistoryEntity?
+
+    @Query("SELECT * FROM watch_history WHERE mediaId = :mediaId")
+    fun getAllHistoryForMedia(mediaId: String): Flow<List<HistoryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateHistory(history: HistoryEntity)
@@ -45,5 +59,12 @@ interface MediaDao {
     
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun updateSettings(settings: SettingsEntity)
+
+    // Home Cache
+    @Query("SELECT * FROM home_cache WHERE sectionId = :sectionId")
+    suspend fun getHomeCache(sectionId: String): HomeCacheEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHomeCache(cache: HomeCacheEntity)
 }
 

@@ -7,6 +7,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -135,6 +136,26 @@ fun DetailsScreen(
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold
                         )
+                        
+                        // Movie Watched Indicator
+                        if (media.realMediaType == "movie" && uiState.isMovieWatched) {
+                            Text("•", fontSize = 13.sp, color = Color.Gray)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = "Watched",
+                                    tint = Color(0xFF4CAF50), // Green
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Watched",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF4CAF50),
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
                     }
                     
                     // Genres
@@ -218,10 +239,10 @@ fun DetailsScreen(
                                 // Construct URL for resuming
                                 val resumeUrl = if (progress.season != null && progress.episode != null) {
                                     // TV show - resume specific episode
-                                    "https://watch.vidora.su/watch/tv/${media.id}/${progress.season}/${progress.episode}"
+                                    "https://flixer.su/watch/tv/${media.id}/${progress.season}/${progress.episode}"
                                 } else {
                                     // Movie - resume movie
-                                    "https://watch.vidora.su/watch/movie/${media.id}"
+                                    "https://flixer.su/watch/movie/${media.id}"
                                 }
                                 onWatchClick(media.id, media.realMediaType, resumeUrl)
                             },
@@ -246,13 +267,13 @@ fun DetailsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
                     
                     Button(
-                        onClick = { 
+                        onClick = {
                             if (media.realMediaType == "movie") {
                                 viewModel.markWatched(media)
                             }
                             val finalUrl = when {
-                                media.realMediaType == "tv" -> "https://watch.vidora.su/watch/tv/${media.id}/1/1"
-                                else -> "https://watch.vidora.su/watch/movie/${media.id}"
+                                media.realMediaType == "tv" -> "https://flixer.su/watch/tv/${media.id}/1/1"
+                                else -> "https://flixer.su/watch/movie/${media.id}"
                             }
                             onWatchClick(media.id, media.realMediaType, finalUrl)
                         },
@@ -384,9 +405,13 @@ fun DetailsScreen(
                             }
                         } else {
                             uiState.episodes.forEach { episode ->
-                                EpisodeItem(episode = episode) {
+                                val isWatched = uiState.watchedEpisodes.contains("S${episode.seasonNumber}E${episode.episodeNumber}")
+                                EpisodeItem(
+                                    episode = episode,
+                                    isWatched = isWatched
+                                ) {
                                     viewModel.markWatched(media, episode.seasonNumber, episode.episodeNumber)
-                                    val episodeUrl = "https://watch.vidora.su/watch/tv/${media.id}/${episode.seasonNumber}/${episode.episodeNumber}"
+                                    val episodeUrl = "https://flixer.su/watch/tv/${media.id}/${episode.seasonNumber}/${episode.episodeNumber}"
                                     onWatchClick(media.id, "tv", episodeUrl)
                                 }
                             }
@@ -491,6 +516,7 @@ fun ShimmerDetailsScreen() {
 @Composable
 fun EpisodeItem(
     episode: com.vidora.app.data.remote.Episode,
+    isWatched: Boolean = false,
     onClick: () -> Unit
 ) {
     Card(
@@ -506,13 +532,24 @@ fun EpisodeItem(
                 contentScale = ContentScale.Crop
             )
             Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(
-                    text = "${episode.episodeNumber}. ${episode.name}",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "${episode.episodeNumber}. ${episode.name}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    if (isWatched) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Watched",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
                 Text(
                     text = episode.overview ?: "",
                     fontSize = 12.sp,

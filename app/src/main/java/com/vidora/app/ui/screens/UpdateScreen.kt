@@ -134,7 +134,7 @@ fun UpdateScreen(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Version 1.1.0",
+                            text = "Version ${com.vidora.app.BuildConfig.VERSION_NAME}",
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }

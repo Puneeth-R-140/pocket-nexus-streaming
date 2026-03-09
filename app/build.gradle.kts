@@ -16,8 +16,8 @@ android {
         applicationId = "com.vidora.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 5
-        versionName = "2.5.0"
+        versionCode = 6
+        versionName = "2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

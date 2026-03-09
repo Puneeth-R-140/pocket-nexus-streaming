@@ -24,6 +24,8 @@ data class DetailsUiState(
     val isFavorite: Boolean = false,
     val imdbRating: String? = null,
     val playbackProgress: PlaybackProgress? = null,
+    val isMovieWatched: Boolean = false,
+    val watchedEpisodes: Set<String> = emptySet(),
     val preloadedStreamUrl: String? = null,
     val isLoading: Boolean = false,
     val error: String? = null,
@@ -60,6 +62,7 @@ class DetailsViewModel @Inject constructor(
         if (id.isNotEmpty()) {
             loadDetails(type, id)
             loadPlaybackHistory(id)
+            observeWatchStatus(id)
         }
     }
 
@@ -154,13 +157,14 @@ class DetailsViewModel @Inject constructor(
 
     fun markWatched(media: MediaItem, season: Int? = null, episode: Int? = null) {
         viewModelScope.launch {
-            repository.updateHistory(media, 0L, 0L, season, episode)
+            // Pass identical non-zero values so progress calculates as 100%
+            repository.updateHistory(media, 100L, 100L, season, episode)
         }
     }
     
     private fun loadPlaybackHistory(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val history = repository.getHistoryItem(id)
+            val history = repository.getMostRecentHistoryItem(id)
             history?.let {
                 // Only show progress if user has watched > 5% and < 95%
                 val progressPercent = if (it.durationMs > 0) {
@@ -178,6 +182,36 @@ class DetailsViewModel @Inject constructor(
                             )
                         )
                     }
+                }
+            }
+        }
+    }
+
+    private fun observeWatchStatus(id: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.getAllHistoryForMedia(id).collect { historyList ->
+                val watchedEps = mutableSetOf<String>()
+                var movieWatched = false
+                
+                for (item in historyList) {
+                    val progressPercent = if (item.durationMs > 0) {
+                        ((item.positionMs.toDouble() / item.durationMs) * 100).toInt()
+                    } else 0
+                    
+                    if (progressPercent >= 90) {
+                        if (item.season != null && item.episode != null) {
+                            watchedEps.add("S${item.season}E${item.episode}")
+                        } else {
+                            movieWatched = true
+                        }
+                    }
+                }
+                
+                _uiState.update { state ->
+                    state.copy(
+                        isMovieWatched = movieWatched,
+                        watchedEpisodes = watchedEps
+                    )
                 }
             }
         }
@@ -204,12 +238,10 @@ class DetailsViewModel @Inject constructor(
                 // Construct stream URL (doesn't actually fetch yet, just prepares)
                 val streamUrl = when {
                     media.realMediaType == "tv" -> {
-                        // For TV shows, pre-load S01E01
-                        "https://watch.vidora.su/watch/tv/${media.id}/1/1"
+                        "https://movish.net/moviebox-embed/tv/${media.id}/1/1"
                     }
                     else -> {
-                        // For movies
-                        "https://watch.vidora.su/watch/movie/${media.id}"
+                        "https://movish.net/moviebox-embed/movie/${media.id}"
                     }
                 }
                 

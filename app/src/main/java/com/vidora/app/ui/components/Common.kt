@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -16,11 +17,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.vidora.app.data.remote.MediaItem
 
 fun Modifier.shimmerEffect(): Modifier = composed {
@@ -79,25 +83,56 @@ fun MediaCard(
     ) {
         Column {
             Box {
+                val context = LocalContext.current
+                val posterUrl = if (item.posterPath != null) {
+                    "https://image.tmdb.org/t/p/w500${item.posterPath}"
+                } else null
+                
+                val imageRequest = remember(posterUrl) {
+                    ImageRequest.Builder(context)
+                        .data(posterUrl)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .crossfade(false) // No fade so cached images appear instantly
+                        .build()
+                }
+                
                 AsyncImage(
-                    model = "https://image.tmdb.org/t/p/w500${item.posterPath}",
+                    model = imageRequest,
                     contentDescription = item.displayTitle,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(200.dp),
+                        .height(200.dp)
+                        .shimmerEffect(), // Placeholder while loading
                     contentScale = ContentScale.Crop
                 )
                 
-                if (progress != null && progress > 0f) {
-                    LinearProgressIndicator(
-                        progress = progress.coerceIn(0f, 1f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .height(4.dp),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = Color.Black.copy(alpha = 0.5f)
-                    )
+                if (progress != null) {
+                    if (progress >= 0.9f) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary,
+                            shape = RoundedCornerShape(bottomStart = 8.dp),
+                            modifier = Modifier.align(Alignment.TopEnd)
+                        ) {
+                            Text(
+                                text = "WATCHED",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else if (progress > 0f) {
+                        LinearProgressIndicator(
+                            progress = progress.coerceIn(0f, 1f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .height(4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = Color.Black.copy(alpha = 0.5f)
+                        )
+                    }
                 }
             }
             Text(

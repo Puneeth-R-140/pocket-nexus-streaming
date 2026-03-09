@@ -160,15 +160,7 @@ class MainActivity : ComponentActivity() {
                                     val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
                                     
                                     // Handle different URL patterns by reconstructing completely
-                                    val nextEpisodeUrl = when {
-                                        decodedUrl.contains("watch.vidora.su") -> {
-                                            "https://watch.vidora.su/watch/tv/$mediaId/$nextSeason/$nextEpisode"
-                                        }
-                                        else -> {
-                                            // Default to vidsrc.xyz format which works reliably
-                                            "https://vidsrc.xyz/embed/tv/$mediaId/$nextSeason/$nextEpisode"
-                                        }
-                                    }
+                                    val nextEpisodeUrl = "https://flixer.su/watch/tv/$mediaId/$nextSeason/$nextEpisode"
                                     
                                     android.util.Log.d("AutoPlay", "Current URL: $decodedUrl")
                                     android.util.Log.d("AutoPlay", "Next episode URL: $nextEpisodeUrl")

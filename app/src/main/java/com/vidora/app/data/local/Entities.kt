@@ -97,3 +97,10 @@ data class SettingsEntity(
     val downloadQuality: String = "720p"
 )
 
+@Entity(tableName = "home_cache")
+data class HomeCacheEntity(
+    @PrimaryKey val sectionId: String,
+    val data: String, // Serialized JSON list of MediaItems
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+

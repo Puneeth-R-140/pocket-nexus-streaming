@@ -121,7 +121,7 @@ fun SettingsScreen(
                 Divider()
                 PreferenceItem(
                     title = "App Version",
-                    subtitle = "2.0.1"
+                    subtitle = com.vidora.app.BuildConfig.VERSION_NAME
                 )
                 Divider()
                 PreferenceItem(

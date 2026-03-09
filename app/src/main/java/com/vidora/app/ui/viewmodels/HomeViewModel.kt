@@ -24,6 +24,7 @@ data class HomeUiState(
     val documentaries: List<MediaItem> = emptyList(),
     val favorites: List<com.vidora.app.data.local.FavoriteEntity> = emptyList(),
     val history: List<com.vidora.app.data.local.HistoryEntity> = emptyList(),
+    val historyMap: Map<String, com.vidora.app.data.local.HistoryEntity> = emptyMap(),
     val isLoading: Boolean = false,
     val error: String? = null,
     val canRetry: Boolean = false
@@ -44,68 +45,72 @@ class HomeViewModel @Inject constructor(
 
     private fun observeLocalData() {
         viewModelScope.launch {
-            repository.getFavorites().collect { favs ->
-                _uiState.update { it.copy(favorites = favs) }
-            }
+            repository.getFavorites()
+                .distinctUntilChanged()
+                .collect { favs ->
+                    _uiState.update { it.copy(favorites = favs) }
+                }
         }
         viewModelScope.launch {
-            repository.getWatchHistory().collect { history ->
-                _uiState.update { it.copy(history = history) }
-            }
+            repository.getWatchHistory()
+                .distinctUntilChanged()
+                .collect { history ->
+                    // Map of mediaId -> (the most recent history entity for that media)
+                    val map = history.associateBy { it.mediaId }
+                    _uiState.update { it.copy(history = history, historyMap = map) }
+                }
         }
     }
 
     fun loadHomeContent() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, canRetry = false) }
-            
-            // Launch all requests in parallel
-            val moviesDeferred = async { getList { repository.getTrendingMovies() } }
-            val tvDeferred = async { getList { repository.getTrendingTVShows() } }
-            val actionDeferred = async { getList { repository.getMoviesByGenre("28") } }
-            val comedyDeferred = async { getList { repository.getMoviesByGenre("35") } }
-            val scifiDeferred = async { getList { repository.getMoviesByGenre("878") } }
-            val dramaDeferred = async { getList { repository.getTvShowsByGenre("18") } }
-            val animeDeferred = async { getList { repository.getTvShowsByGenre("16") } }
-            val docDeferred = async { getList { repository.getTvShowsByGenre("99") } }
-            
-            val moviesResult = moviesDeferred.await()
-            val tvResult = tvDeferred.await()
-            val actionResult = actionDeferred.await()
-            val comedyResult = comedyDeferred.await()
-            val scifiResult = scifiDeferred.await()
-            val dramaResult = dramaDeferred.await()
-            val animeResult = animeDeferred.await()
-            val docResult = docDeferred.await()
-            
-            val hasError = moviesResult == null && tvResult == null 
-            
-            _uiState.update {
-                it.copy(
-                    trendingMovies = moviesResult ?: emptyList(),
-                    popularShows = tvResult ?: emptyList(),
-                    actionMovies = actionResult ?: emptyList(),
-                    comedyMovies = comedyResult ?: emptyList(),
-                    scifiMovies = scifiResult ?: emptyList(),
-                    dramaShows = dramaResult ?: emptyList(),
-                    animationShows = animeResult ?: emptyList(),
-                    documentaries = docResult ?: emptyList(),
-                    isLoading = false,
-                    error = if (hasError) "Failed to load content" else null,
-                    canRetry = hasError
-                )
-            }
-        }
+        val current = _uiState.value
+        if (current.trendingMovies.isNotEmpty()) return
+
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        
+        loadSection("Trending Movies") { repository.getTrendingMovies() }
+        loadSection("Popular TV") { repository.getTrendingTVShows() }
+        loadSection("Action") { repository.getMoviesByGenre("28") }
+        loadSection("Comedy") { repository.getMoviesByGenre("35") }
+        loadSection("Sci-Fi") { repository.getMoviesByGenre("878") }
+        loadSection("Drama") { repository.getTvShowsByGenre("18") }
+        loadSection("Animation") { repository.getTvShowsByGenre("16") }
+        loadSection("Documentaries") { repository.getTvShowsByGenre("99") }
     }
-    
-    private suspend fun getList(call: () -> Flow<NetworkResult<List<MediaItem>>>): List<MediaItem>? {
-        var resultList: List<MediaItem>? = null
-        call().collect { result ->
-            if (result is NetworkResult.Success) {
-                resultList = result.data
+
+    private fun loadSection(name: String, flowProvider: () -> Flow<NetworkResult<List<MediaItem>>>) {
+        viewModelScope.launch {
+            flowProvider().collect { result ->
+                when (result) {
+                    is NetworkResult.Success -> {
+                        _uiState.update { state ->
+                            val newState = when (name) {
+                                "Trending Movies" -> state.copy(trendingMovies = result.data)
+                                "Popular TV" -> state.copy(popularShows = result.data)
+                                "Action" -> state.copy(actionMovies = result.data)
+                                "Comedy" -> state.copy(comedyMovies = result.data)
+                                "Sci-Fi" -> state.copy(scifiMovies = result.data)
+                                "Drama" -> state.copy(dramaShows = result.data)
+                                "Animation" -> state.copy(animationShows = result.data)
+                                "Documentaries" -> state.copy(documentaries = result.data)
+                                else -> state
+                            }
+                            // Only hide loading if we have some data
+                            newState.copy(isLoading = false, error = null)
+                        }
+                    }
+                    is NetworkResult.Error -> {
+                        // Only show error if we have no data at all
+                        if (_uiState.value.trendingMovies.isEmpty() && _uiState.value.popularShows.isEmpty()) {
+                            _uiState.update { it.copy(isLoading = false, error = result.message, canRetry = true) }
+                        }
+                    }
+                    is NetworkResult.Loading -> {
+                        // Handled by initial isLoading = true
+                    }
+                }
             }
         }
-        return resultList
     }
     
     fun retry() {
