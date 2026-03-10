@@ -803,9 +803,26 @@ private fun ExoPlayerView(
     
     // Update MediaItem when subtitles are detected
     // Prepare MediaItem with Subtitles
+    var lastMediaItemUri by remember { mutableStateOf<String?>(null) }
+    var lastSubtitleCount by remember { mutableStateOf(0) }
+
     LaunchedEffect(detectedSubtitles.toList(), streamInfo.streamUrl, isHistoryLoaded) {
         val player = exoPlayerInstance ?: return@LaunchedEffect
         if (!isHistoryLoaded || streamInfo.streamUrl.isEmpty()) return@LaunchedEffect
+
+        // Optimization: Avoid resetting if URI and subtitle count haven't changed
+        // This prevents stuttering when the same subtitles are detected multiple times
+        if (lastMediaItemUri == streamInfo.streamUrl && lastSubtitleCount == detectedSubtitles.size) {
+            return@LaunchedEffect
+        }
+        
+        // Small delay to batch multiple subtitle detections
+        if (detectedSubtitles.size > lastSubtitleCount) {
+             delay(800)
+        }
+
+        lastMediaItemUri = streamInfo.streamUrl
+        lastSubtitleCount = detectedSubtitles.size
         
         val mediaItemBuilder = ExoMediaItem.Builder()
             .setUri(streamInfo.streamUrl)
@@ -843,9 +860,9 @@ private fun ExoPlayerView(
 
         // Attempt to restore selected subtitle based on URL/Label
         if (selectedSubtitleUrl != null) {
-            val trackSelector = player.trackSelector as? DefaultTrackSelector
             val matchingTrack = detectedSubtitles.find { it.url == selectedSubtitleUrl }
             if (matchingTrack != null) {
+                val trackSelector = player.trackSelector as? DefaultTrackSelector
                 trackSelector?.parameters = trackSelector?.buildUponParameters()
                     ?.setRendererDisabled(getTextRendererIndex(player), false)
                     ?.setPreferredTextLanguage(matchingTrack.language)
@@ -1053,27 +1070,8 @@ private fun GestureControlsOverlay(
                 }
                 .pointerInput(Unit) {
                     detectTapGestures(
-                        onDoubleTap = {
-                            val seekAmount = -10000L
-                            val newPosition = (exoPlayer.currentPosition + seekAmount).coerceAtLeast(0)
-                            exoPlayer.seekTo(newPosition)
-                            
-                            seekFeedback = SeekFeedback(true, "-10s")
-                            scope.launch {
-                                delay(800)
-                                seekFeedback = null
-                            }
-                        },
-                        onLongPress = {
-                            exoPlayer.setPlaybackSpeed(2f)
-                            speedFeedback = true
-                        },
                         onPress = {
                             tryAwaitRelease()
-                            if (speedFeedback) {
-                                exoPlayer.setPlaybackSpeed(1f)
-                                speedFeedback = false
-                            }
                         }
                     )
                 }
@@ -1103,27 +1101,8 @@ private fun GestureControlsOverlay(
                 }
                 .pointerInput(Unit) {
                     detectTapGestures(
-                        onDoubleTap = {
-                            val seekAmount = 10000L
-                            val newPosition = (exoPlayer.currentPosition + seekAmount).coerceAtLeast(0)
-                            exoPlayer.seekTo(newPosition)
-                            
-                            seekFeedback = SeekFeedback(false, "+10s")
-                            scope.launch {
-                                delay(800)
-                                seekFeedback = null
-                            }
-                        },
-                        onLongPress = {
-                            exoPlayer.setPlaybackSpeed(2f)
-                            speedFeedback = true
-                        },
                         onPress = {
                             tryAwaitRelease()
-                            if (speedFeedback) {
-                                exoPlayer.setPlaybackSpeed(1f)
-                                speedFeedback = false
-                            }
                         }
                     )
                 }
@@ -1368,20 +1347,46 @@ private fun SubtitleSelectionDialog(
                                 SubtitleOption(track.label, selectedTrackKey == trackKey) {
                                     exoPlayer?.let { player ->
                                         val trackSelector = player.trackSelector as? DefaultTrackSelector
-                                        val newParams = trackSelector?.buildUponParameters()
-                                            ?.setRendererDisabled(getTextRendererIndex(player), false)
-                                            ?.setPreferredTextLanguage(track.language)
-                                            ?.setSelectUndeterminedTextLanguage(true)
-                                            ?.setForceHighestSupportedBitrate(false)
-                                            ?.build()
-                                        if (newParams != null && trackSelector != null) {
-                                            trackSelector.parameters = newParams
+                                        
+                                        // Find the actual track group and index for this selection
+                                        val mappedTrackInfo = trackSelector?.currentMappedTrackInfo
+                                        if (mappedTrackInfo != null) {
+                                            val rendererIndex = getTextRendererIndex(player)
+                                            val groups = mappedTrackInfo.getTrackGroups(rendererIndex)
+                                            
+                                            var targetGroupIndex = -1
+                                            var targetTrackIndex = -1
+                                            
+                                            for (i in 0 until groups.length) {
+                                                val group = groups[i]
+                                                for (j in 0 until group.length) {
+                                                    val format = group.getFormat(j)
+                                                    if (format.language == track.language && format.label == track.label) {
+                                                        targetGroupIndex = i
+                                                        targetTrackIndex = j
+                                                        break
+                                                    }
+                                                }
+                                                if (targetGroupIndex != -1) break
+                                            }
+                                            
+                                            if (targetGroupIndex != -1) {
+                                                val override = DefaultTrackSelector.SelectionOverride(targetGroupIndex, targetTrackIndex)
+                                                trackSelector.parameters = trackSelector.buildUponParameters()
+                                                    .setRendererDisabled(rendererIndex, false)
+                                                    .setSelectionOverride(rendererIndex, groups, override)
+                                                    .build()
+                                            } else {
+                                                // Fallback to language-based if exact match failed
+                                                trackSelector.parameters = trackSelector.buildUponParameters()
+                                                    .setRendererDisabled(rendererIndex, false)
+                                                    .setPreferredTextLanguage(track.language)
+                                                    .build()
+                                            }
                                         }
+                                        
                                         selectedTrackKey = trackKey
                                         onSubtitleUrlChange(track.url)
-                                        
-                                        // Force ExoPlayer to refresh tracks
-                                        player.prepare()
                                     }
                                     onDismiss()
                                 }
