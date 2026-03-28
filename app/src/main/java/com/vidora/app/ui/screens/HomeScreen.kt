@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -39,9 +40,15 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     
-    // Memoize mapped lists so Coil image keys don't change on every recompose
-    val historyAsItems = remember(uiState.history) { uiState.history.map { it.toMediaItem() } }
-    val favoritesAsItems = remember(uiState.favorites) { uiState.favorites.map { it.toMediaItem() } }
+    // Memoize mapped lists and filter out any accidental animations
+    val historyAsItems = remember(uiState.history) { 
+        uiState.history.map { it.toMediaItem() }
+            .filter { item -> item.genres?.any { it.id == 16 || it.name.contains("Animation", ignoreCase = true) } != true }
+    }
+    val favoritesAsItems = remember(uiState.favorites) { 
+        uiState.favorites.map { it.toMediaItem() }
+            .filter { item -> item.genres?.any { it.id == 16 || it.name.contains("Animation", ignoreCase = true) } != true }
+    }
 
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         if (uiState.isLoading && uiState.trendingMovies.isEmpty()) {
@@ -59,15 +66,49 @@ fun HomeScreen(
             }
         } else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                item { 
+                item(contentType = "header") { 
                     HeaderSection(
                         onSearchClick = onSearchClick,
                         onSettingsClick = onSettingsClick
                     ) 
                 }
+                
+                item(contentType = "notice") {
+                    val secondaryContainer = MaterialTheme.colorScheme.secondaryContainer
+                    val onSecondaryContainer = MaterialTheme.colorScheme.onSecondaryContainer
+                    val primary = MaterialTheme.colorScheme.primary
+                    
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        color = secondaryContainer.copy(alpha = 0.5f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = primary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Text(
+                                    text = "Use HEXA or BETA for multiple quality options. Use AUTO if both fail.",
+                                    fontSize = 11.sp,
+                                    color = onSecondaryContainer,
+                                    lineHeight = 15.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                        }
+                    }
+                }
 
-                if (uiState.history.isNotEmpty()) {
-                    item {
+                if (historyAsItems.isNotEmpty()) {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Continue Watching",
                             items = historyAsItems,
@@ -77,8 +118,8 @@ fun HomeScreen(
                     }
                 }
 
-                if (uiState.favorites.isNotEmpty()) {
-                    item {
+                if (favoritesAsItems.isNotEmpty()) {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "My Favorites",
                             items = favoritesAsItems,
@@ -89,7 +130,7 @@ fun HomeScreen(
                 }
                 
                 if (uiState.trendingMovies.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Trending Movies",
                             items = uiState.trendingMovies,
@@ -100,7 +141,7 @@ fun HomeScreen(
                 }
                 
                 if (uiState.popularShows.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Popular TV Shows",
                             items = uiState.popularShows,
@@ -111,7 +152,7 @@ fun HomeScreen(
                 }
                 
                 if (uiState.actionMovies.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Action Movies",
                             items = uiState.actionMovies,
@@ -122,7 +163,7 @@ fun HomeScreen(
                 }
                 
                 if (uiState.comedyMovies.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Comedy Movies",
                             items = uiState.comedyMovies,
@@ -133,7 +174,7 @@ fun HomeScreen(
                 }
                 
                 if (uiState.scifiMovies.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Sci-Fi & Fantasy",
                             items = uiState.scifiMovies,
@@ -144,7 +185,7 @@ fun HomeScreen(
                 }
                 
                 if (uiState.dramaShows.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Drama Series",
                             items = uiState.dramaShows,
@@ -154,19 +195,9 @@ fun HomeScreen(
                     }
                 }
                 
-                if (uiState.animationShows.isNotEmpty()) {
-                    item {
-                        MediaSection(
-                            title = "Animation",
-                            items = uiState.animationShows,
-                            onMediaClick = onMediaClick,
-                            historyMap = uiState.historyMap
-                        )
-                    }
-                }
                 
                 if (uiState.documentaries.isNotEmpty()) {
-                    item {
+                    item(contentType = "section") {
                         MediaSection(
                             title = "Documentaries",
                             items = uiState.documentaries,
@@ -303,7 +334,8 @@ fun MediaSection(
         ) {
             items(
                 count = items.size,
-                key = { index -> items[index].id }
+                key = { index -> items[index].id },
+                contentType = { "media_card" }
             ) { index ->
                 val item = items[index]
                 val history = historyMap[item.id]

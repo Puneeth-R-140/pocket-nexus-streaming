@@ -26,14 +26,14 @@ object NetworkModule {
     @Singleton
     fun provideLoggingInterceptor(): HttpLoggingInterceptor {
         return HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.HEADERS
         }
     }
 
     @Provides
     @Singleton
     fun provideCache(@ApplicationContext context: Context): Cache {
-        val cacheSize = 100L * 1024 * 1024 // 100MB
+        val cacheSize = 50L * 1024 * 1024 // 50MB
         val cacheDir = File(context.cacheDir, "http_cache")
         return Cache(cacheDir, cacheSize)
     }
@@ -44,11 +44,11 @@ object NetworkModule {
         return Interceptor { chain ->
             val response = chain.proceed(chain.request())
             val cacheControl = CacheControl.Builder()
-                .maxAge(1, TimeUnit.HOURS) // Cache for 1 hour
+                .maxAge(24, TimeUnit.HOURS) // Cache for 24 hours
                 .build()
             response.newBuilder()
                 .header("Cache-Control", cacheControl.toString())
-                .removeHeader("Pragma") // Remove pragma no-cache if present
+                .removeHeader("Pragma")
                 .build()
         }
     }
@@ -101,26 +101,20 @@ object NetworkModule {
             .create(TmdbService::class.java)
     }
 
-    @Provides
-    @Singleton
-    fun provideSubtitleService(okHttpClient: OkHttpClient): com.vidora.app.data.remote.SubtitleService {
-        return Retrofit.Builder()
-            .baseUrl("https://sub.wyzie.ru/")
-            .client(okHttpClient) // Uses base (clean) client
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(com.vidora.app.data.remote.SubtitleService::class.java)
-    }
+    // SubtitleService removed at user request
+
+    // OmdbService removed at user request
+
 
     @Provides
     @Singleton
-    fun provideOmdbService(okHttpClient: OkHttpClient): com.vidora.app.data.remote.OmdbService {
+    fun provideImdbApiService(okHttpClient: OkHttpClient): com.vidora.app.data.remote.ImdbApiService {
         return Retrofit.Builder()
-            .baseUrl("https://www.omdbapi.com/")
+            .baseUrl("https://api.imdbapi.dev/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(com.vidora.app.data.remote.OmdbService::class.java)
+            .create(com.vidora.app.data.remote.ImdbApiService::class.java)
     }
 }
 

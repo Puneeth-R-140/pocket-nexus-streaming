@@ -13,15 +13,9 @@ private const val TAG = "HlsManifestParser"
  */
 data class StreamInfo(
     val streamUrl: String,
-    val subtitles: List<SubtitleTrack> = emptyList(),
     val qualities: List<QualityLevel> = emptyList()
 )
 
-data class SubtitleTrack(
-    val language: String,
-    val label: String,
-    val url: String
-)
 
 data class QualityLevel(
     val resolution: String,
@@ -58,7 +52,6 @@ class HlsManifestParser(
 
             if (isMasterManifest) {
                 Log.d(TAG, "Detected MASTER manifest — resolving quality variants")
-                val subtitles = parseSubtitles(manifestContent, manifestUrl)
                 val qualities = parseQualities(manifestContent, manifestUrl)
 
                 // Pick the highest-bandwidth variant to also resolve its media manifest
@@ -79,20 +72,17 @@ class HlsManifestParser(
                 // ExoPlayer's HlsMediaSource handles quality switching and decryption natively.
                 StreamInfo(
                     streamUrl = manifestUrl,
-                    subtitles = subtitles,
                     qualities = qualities
                 )
             } else {
                 // This is already a media-level manifest (single rendition or no variants)
                 Log.d(TAG, "Detected MEDIA manifest — no quality variants, passing directly")
-                val subtitles = parseSubtitles(manifestContent, manifestUrl)
                 val keyUrl = parseAesKeyUrl(manifestContent, manifestUrl)
                 if (keyUrl != null) {
                     Log.d(TAG, "AES-128 key URL: $keyUrl")
                 }
                 StreamInfo(
                     streamUrl = manifestUrl,
-                    subtitles = subtitles,
                     qualities = emptyList()
                 )
             }
@@ -134,20 +124,6 @@ class HlsManifestParser(
         }
     }
 
-    private fun parseSubtitles(manifest: String, baseUrl: String): List<SubtitleTrack> {
-        val subtitles = mutableListOf<SubtitleTrack>()
-        manifest.lines().forEach { line ->
-            if (line.startsWith("#EXT-X-MEDIA:") && line.contains("TYPE=SUBTITLES")) {
-                val language = extractAttribute(line, "LANGUAGE") ?: "unknown"
-                val name = extractAttribute(line, "NAME") ?: language
-                val uri = extractAttribute(line, "URI")
-                if (uri != null) {
-                    subtitles.add(SubtitleTrack(language, name, resolveUrl(baseUrl, uri)))
-                }
-            }
-        }
-        return subtitles
-    }
 
     private fun parseQualities(manifest: String, baseUrl: String): List<QualityLevel> {
         val qualities = mutableListOf<QualityLevel>()

@@ -45,6 +45,7 @@ fun FavoriteEntity.toMediaItem() = com.vidora.app.data.remote.MediaItem(
     seasons = null,
     runtime = null,
     episodeRunTime = null,
+    genreIds = null,
     imdbId = null,
     contentRatings = null
 )
@@ -68,6 +69,7 @@ fun HistoryEntity.toMediaItem() = com.vidora.app.data.remote.MediaItem(
     seasons = null,
     runtime = null,
     episodeRunTime = null,
+    genreIds = null,
     imdbId = null,
     contentRatings = null
 )

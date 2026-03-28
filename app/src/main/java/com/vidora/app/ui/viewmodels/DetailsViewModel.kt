@@ -22,11 +22,11 @@ data class DetailsUiState(
     val recommendations: List<MediaItem> = emptyList(),
     val currentSeason: Int = 1,
     val isFavorite: Boolean = false,
-    val imdbRating: String? = null,
     val playbackProgress: PlaybackProgress? = null,
     val isMovieWatched: Boolean = false,
     val watchedEpisodes: Set<String> = emptySet(),
     val preloadedStreamUrl: String? = null,
+    val selectedServer: String = "hexa", // hexa, beta, auto, animepahe
     val isLoading: Boolean = false,
     val error: String? = null,
     val canRetry: Boolean = false
@@ -83,10 +83,7 @@ class DetailsViewModel @Inject constructor(
                                 error = null
                             ) 
                         }
-                        // Fetch IMDb rating if available
-                        result.data.imdbId?.let { imdbId ->
-                            loadImdbRating(imdbId)
-                        }
+                        
                         if (type == "tv") {
                             loadEpisodes(id, 1)
                         }
@@ -162,6 +159,12 @@ class DetailsViewModel @Inject constructor(
         }
     }
     
+    fun updateServer(server: String) {
+        _uiState.update { it.copy(selectedServer = server) }
+        // If we have a media item, restart preloading with the new server
+        startPreloading()
+    }
+    
     private fun loadPlaybackHistory(id: String) {
         viewModelScope.launch(Dispatchers.IO) {
             val history = repository.getMostRecentHistoryItem(id)
@@ -217,12 +220,21 @@ class DetailsViewModel @Inject constructor(
         }
     }
 
-    private fun loadImdbRating(imdbId: String) {
-        viewModelScope.launch {
-            val ratings = repository.getRatings(imdbId)
-            ratings?.imdbRating?.let { rating ->
-                _uiState.update { it.copy(imdbRating = rating) }
-            }
+    // Ratings logic removed
+    
+
+    // VidNest Provider URL Construction
+    fun getVidNestUrl(type: String, id: String, season: Int? = null, episode: Int? = null, forcedServer: String? = null): String {
+        val server = forcedServer ?: _uiState.value.selectedServer
+        val serverParam = if (server != "auto") "?server=$server" else ""
+        
+        return when {
+            type == "movie" -> 
+                "https://vidnest.fun/movie/$id$serverParam"
+            type == "tv" -> 
+                "https://vidnest.fun/tv/$id/${season ?: 1}/${episode ?: 1}$serverParam"
+            else -> 
+                "https://vidnest.fun/movie/$id$serverParam"
         }
     }
     
@@ -235,23 +247,13 @@ class DetailsViewModel @Inject constructor(
         
         preloadJob = viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Construct stream URL (doesn't actually fetch yet, just prepares)
-                val streamUrl = when {
-                    media.realMediaType == "tv" -> {
-                        "https://movish.net/moviebox-embed/tv/${media.id}/1/1"
-                    }
-                    else -> {
-                        "https://movish.net/moviebox-embed/movie/${media.id}"
-                    }
-                }
+                // Construct VidNest stream URL (primary provider)
+                val streamUrl = getVidNestUrl(media.realMediaType, media.id)
                 
                 // Store pre-loaded URL
                 _uiState.update { it.copy(preloadedStreamUrl = streamUrl) }
-                
-                // Note: In production, you could use a headless WebView here
-                // to actually fetch the stream link, but that requires more setup
             } catch (e: Exception) {
-                // Silent fail - doesn't affect user experience
+                // Silent fail
             }
         }
     }

@@ -147,6 +147,7 @@ class MainActivity : ComponentActivity() {
                                 seasons = null,
                                 runtime= null,
                                 episodeRunTime = null,
+                                genreIds = null,
                                 imdbId = null,
                                 contentRatings = null
                             )
@@ -159,8 +160,12 @@ class MainActivity : ComponentActivity() {
                                     // Extract base URL pattern and construct next episode URL
                                     val decodedUrl = java.net.URLDecoder.decode(url, "UTF-8")
                                     
-                                    // Handle different URL patterns by reconstructing completely
-                                    val nextEpisodeUrl = "https://flixer.su/watch/tv/$mediaId/$nextSeason/$nextEpisode"
+                                    // Construct next episode URL by replacing season/episode in current VidNest URL
+                                    val nextEpisodeUrl = decodedUrl
+                                        .replace(Regex("/tv/([^/]+)/(\\d+)/(\\d+)")) { match ->
+                                            "/tv/${match.groupValues[1]}/$nextSeason/$nextEpisode"
+                                        }
+                                        .replace(Regex("/movie/([^/]+)/(\\d+)/sub")) { _ -> "" } // Purged animepahe logic
                                     
                                     android.util.Log.d("AutoPlay", "Current URL: $decodedUrl")
                                     android.util.Log.d("AutoPlay", "Next episode URL: $nextEpisodeUrl")

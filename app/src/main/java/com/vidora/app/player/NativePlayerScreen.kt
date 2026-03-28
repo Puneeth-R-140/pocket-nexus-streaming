@@ -16,8 +16,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.Fullscreen
@@ -63,10 +61,6 @@ import com.vidora.app.util.NetworkResult
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import android.net.Uri
-import com.google.android.exoplayer2.util.MimeTypes
-import com.google.android.exoplayer2.source.MergingMediaSource
-import com.google.android.exoplayer2.source.SingleSampleMediaSource
-import com.google.android.exoplayer2.source.hls.HlsMediaSource
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSource
 import org.json.JSONArray
 import org.json.JSONObject
@@ -109,18 +103,14 @@ fun NativePlayerScreen(
     var state by remember { mutableStateOf<PlayerState>(PlayerState.Loading("Initializing player...")) }
     var extractedUrl by remember { mutableStateOf<String?>(null) }
     var showQualityDialog by remember { mutableStateOf(false) }
-    var showSubtitleDialog by remember { mutableStateOf(false) }
     var showSpeedDialog by remember { mutableStateOf(false) }
     var availableQualities by remember { mutableStateOf<List<VideoQuality>>(emptyList()) }
     var selectedQuality by remember { mutableStateOf<VideoQuality?>(null) }
     var exoPlayerInstance by remember { mutableStateOf<ExoPlayer?>(null) }
-    val detectedSubtitles = remember { mutableStateListOf<SubtitleTrack>() }
-    var selectedSubtitleUrl by remember { mutableStateOf<String?>(null) }
     var webViewKey by remember { mutableStateOf(0) } // For forcing WebView recreation on retry
     var cookies by remember { mutableStateOf<String?>(null) } // Captured cookies from WebView
     var streamReferer by remember { mutableStateOf<String?>(null) } // Referer for AES-128 key requests
     var userSettings by remember { mutableStateOf<com.vidora.app.data.local.SettingsEntity?>(null) }
-    var hasAutoSelectedSubtitle by remember { mutableStateOf(false) }
     var showAutoPlayCountdown by remember { mutableStateOf(false) }
     var nextEpisodeInfo by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var totalEpisodesInSeason by remember { mutableStateOf<Int?>(null) }
@@ -183,66 +173,7 @@ fun NativePlayerScreen(
         }
     }
     
-    // Proactively fetch subtitles from API
-    LaunchedEffect(currentMedia.id, season, episode) {
-        Log.d(TAG, "Fetching subtitles for TMDB ID: ${currentMedia.id}, Season: ${season}, Episode: ${episode}")
-        detectedSubtitles.clear()
-        hasAutoSelectedSubtitle = false
-        try {
-            val subtitles = repository.getSubtitles(currentMedia.id, currentMedia.realMediaType, season, episode)
-            Log.d(TAG, "Fetched ${subtitles.size} subtitles from API")
-            
-            subtitles.forEach { subtitle ->
-                val displayLang = subtitle.display
-                // Count existing subs with same language to make label unique
-                val existingCount = detectedSubtitles.count { it.language == subtitle.language }
-                val finalLabel = buildString {
-                    append(displayLang)
-                    if (existingCount > 0) append(" #${existingCount + 1}")
-                    if (!subtitle.release.isNullOrEmpty()) append(" [${subtitle.release}]")
-                    if (subtitle.isHearingImpaired) append(" (CC)")
-                }
-                
-                if (detectedSubtitles.none { it.url == subtitle.url }) {
-                    detectedSubtitles.add(SubtitleTrack(
-                        language = subtitle.language,
-                        label = finalLabel,
-                        url = subtitle.url
-                    ))
-                    Log.d(TAG, "Added subtitle: $finalLabel (${subtitle.language})")
-                }
-            }
-            
-            // Auto-select subtitle based on user preference
-            if (!hasAutoSelectedSubtitle && detectedSubtitles.isNotEmpty() && exoPlayerInstance != null) {
-                val defaultLang = userSettings?.defaultSubtitleLanguage
-                if (!defaultLang.isNullOrEmpty() && defaultLang != "None") {
-                    val normalizedDefaultLang = normalizeLanguageCode(defaultLang)
-                    val matchingTrack = detectedSubtitles.find { track ->
-                        normalizeLanguageCode(track.language) == normalizedDefaultLang
-                    }
-                    
-                    if (matchingTrack != null) {
-                        Log.d(TAG, "Auto-selecting preferred subtitle: ${matchingTrack.label}")
-                        exoPlayerInstance?.let { player ->
-                            val trackSelector = player.trackSelector as? DefaultTrackSelector
-                            val newParams = trackSelector?.buildUponParameters()
-                                ?.setRendererDisabled(getTextRendererIndex(player), false)
-                                ?.setPreferredTextLanguage(matchingTrack.language)
-                                ?.setSelectUndeterminedTextLanguage(true)
-                                ?.build()
-                            if (newParams != null && trackSelector != null) {
-                                trackSelector.parameters = newParams
-                            }
-                            hasAutoSelectedSubtitle = true
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error fetching subtitles: ${e.message}", e)
-        }
-    }
+    // Subtitles removed at user request
     
     // Timeout tracking with optimized duration
     LaunchedEffect(webViewKey) {
@@ -256,7 +187,6 @@ fun NativePlayerScreen(
     val retry = {
         Log.d(TAG, "Retrying stream extraction...")
         extractedUrl = null
-        detectedSubtitles.clear()
         webViewKey++ // Force WebView recreation
         state = PlayerState.Loading("Retrying stream extraction...")
     }
@@ -340,16 +270,10 @@ fun NativePlayerScreen(
                                         (url.contains("movish.net") && url.contains(".mp4")) ||
                                         (url.contains("hakunaymatata.com") && url.contains(".mp4")) ||
                                         (url.contains("newparadise.site") && url.contains("file2")) ||
-                                        (url.contains("neonhorizonworkshops.com") && url.contains("/pl/"))
+                                        (url.contains("orbitbear66.pro") && url.contains("file2")) ||
+                                         (url.contains("akcloud.animanga.fun") && (url.contains("proxy") || url.contains("mp4-proxy") || url.contains("ts-proxy"))) ||
+                                         (url.contains("neonhorizonworkshops.com") && url.contains("/pl/"))
 
-                                    val isSubtitle = url.contains(".srt") || url.contains(".vtt")
-                                    if (isSubtitle) {
-                                        Log.d(TAG, "Intercepted subtitle: $url")
-                                        val langCode = "en" // movish serves English usually
-                                        if (detectedSubtitles.none { it.url == url }) {
-                                            detectedSubtitles.add(SubtitleTrack(langCode, "English", url))
-                                        }
-                                    }
 
                                     if (isStream && extractedUrl == null) {
                                         Log.d(TAG, "Intercepted stream: $url")
@@ -357,17 +281,16 @@ fun NativePlayerScreen(
 
                                         // Capture Referer for ExoPlayer segment/key requests
                                         val pageReferer = request?.requestHeaders?.get("Referer")
-                                            ?: "https://flixer.su/"
+                                            ?: "https://vidnest.fun/"
                                         streamReferer = pageReferer
-                                        Log.d(TAG, "Using Referer: $pageReferer")
+                                        Log.d(TAG, "Using Referer: ${'$'}pageReferer")
 
                                         // Give the page 1 second to request subtitles before playing
                                         scope.launch {
                                             kotlinx.coroutines.delay(1000)
                                             state = PlayerState.Playing(
                                                 StreamInfo(
-                                                    streamUrl = url,
-                                                    subtitles = detectedSubtitles.toList()
+                                                    streamUrl = url
                                                 )
                                             )
                                         }
@@ -409,8 +332,6 @@ fun NativePlayerScreen(
                     onWebViewKeyChange = { webViewKey = it },
                     exoPlayerInstance = exoPlayerInstance,
                     onExoPlayerInstanceChange = { exoPlayerInstance = it },
-                    selectedSubtitleUrl = selectedSubtitleUrl,
-                    onSubtitleUrlChange = { selectedSubtitleUrl = it },
                     userSettings = userSettings,
                     onVideoEnded = { nextSeason, nextEpisode ->
                         nextEpisodeInfo = nextSeason to nextEpisode
@@ -437,7 +358,6 @@ fun NativePlayerScreen(
                         }
                     },
                     onShowQualityDialog = { showQualityDialog = true },
-                    onShowSubtitleDialog = { showSubtitleDialog = true },
                     onShowSpeedDialog = { showSpeedDialog = true },
                     onNextEpisode = if (media.realMediaType == "tv" && season != null && episode != null) {
                         {
@@ -458,7 +378,6 @@ fun NativePlayerScreen(
                            }
                         }
                     } else null,
-                    detectedSubtitles = detectedSubtitles.toList()
                 )
             }
             
@@ -480,15 +399,6 @@ fun NativePlayerScreen(
             )
         }
         
-        if (showSubtitleDialog) {
-            SubtitleSelectionDialog(
-                tracks = detectedSubtitles.toList(),
-                exoPlayer = exoPlayerInstance,
-                selectedSubtitleUrl = selectedSubtitleUrl,
-                onSubtitleUrlChange = { selectedSubtitleUrl = it },
-                onDismiss = { showSubtitleDialog = false }
-            )
-        }
         
         if (showSpeedDialog) {
             SpeedControlPanel(
@@ -651,10 +561,9 @@ private fun injectDebuggerBypass(view: android.webkit.WebView?) {
                 };
             })(setInterval);
 
-            // 3. Clear existing intervals just in case
-            for (let i = 1; i < 1000; i++) {
-                window.clearInterval(i);
-            }
+            // 3. (Intentionally skip mass clearInterval — providers use intervals
+            //    to keep session cookies alive. Killing them causes 403s mid-stream.
+            //    The setInterval override above already blocks debugger-containing callbacks.)  
 
             console.log('[Vidora] Anti-debugger injected at: ' + document.readyState);
         })();
@@ -669,7 +578,8 @@ private fun injectDebuggerBypass(view: android.webkit.WebView?) {
 //   legacy:      https://watch.vidora.su/watch/tv/{id}/{season}/{episode}
 private fun extractSeasonEpisodeFromUrl(url: String): Pair<Int?, Int?> {
     return try {
-        val parts = url.split("/")
+        val cleanUrl = if (url.contains("?")) url.substringBefore("?") else url
+        val parts = cleanUrl.split("/")
         if (parts.size >= 3) {
             val episode = parts.last().toIntOrNull()
             val season = parts[parts.size - 2].toIntOrNull()
@@ -722,16 +632,12 @@ private fun ExoPlayerView(
     onWebViewKeyChange: (Int) -> Unit,
     exoPlayerInstance: ExoPlayer?,
     onExoPlayerInstanceChange: (ExoPlayer?) -> Unit,
-    selectedSubtitleUrl: String?,
-    onSubtitleUrlChange: (String?) -> Unit,
     userSettings: com.vidora.app.data.local.SettingsEntity?,
     onVideoEnded: (season: Int, episode: Int) -> Unit,
     onQualitiesDetected: (List<VideoQuality>, ExoPlayer) -> Unit,
     onShowQualityDialog: () -> Unit,
-    onShowSubtitleDialog: () -> Unit,
     onShowSpeedDialog: () -> Unit,
-    onNextEpisode: (() -> Unit)? = null,
-    detectedSubtitles: List<SubtitleTrack>
+    onNextEpisode: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val internalScope = rememberCoroutineScope()
@@ -739,21 +645,34 @@ private fun ExoPlayerView(
     var startupPosition by remember { mutableStateOf<Long?>(null) }
     var isHistoryLoaded by remember { mutableStateOf(false) }
     var rotationMode by remember { mutableStateOf(RotationMode.AUTO) }
-    var scalingMode by remember { mutableStateOf(ScalingMode.ZOOM) }
+    var scalingMode by remember { mutableStateOf(ScalingMode.FIT) }
     var showControls by remember { mutableStateOf(true) }
     val activity = context.findActivity()
     val window = activity?.window
     
-    val exoPlayer = remember(cookies, streamReferer) {
-        Log.d(TAG, "Creating ExoPlayer with referer: $streamReferer, cookies: ${cookies?.take(30)}...")
-        PlayerFactory.createExoPlayer(
+    // Create ExoPlayer ONCE — never recreated. No cookies/streamReferer in the
+    // remember key. Headers are updated post-creation via playerHolder.updateHeaders()
+    // so cookies that arrive from WebView late are transparently injected into future
+    // HLS segment and AES-128 key requests without any player reset.
+    val playerHolder = remember {
+        Log.d(TAG, "Creating PlayerHolder (one-time)")
+        PlayerFactory.createPlayerHolder(
             context,
             userAgent = USER_AGENT,
-            cookies = cookies,
-            streamUrl = streamInfo.streamUrl,
-            referer = streamReferer
-        ).also { onExoPlayerInstanceChange(it) }
+            cookies = null,   // headers injected below once WebView extracts them
+            referer = null
+        ).also { onExoPlayerInstanceChange(it.player) }
     }
+    val exoPlayer = playerHolder.player
+
+    // Live header injection: whenever cookies or referer arrive from the WebView,
+    // push them into the DataSource.Factory. No player restart needed.
+    LaunchedEffect(cookies, streamReferer) {
+        val ref = streamReferer ?: "https://vidnest.fun/"
+        playerHolder.updateHeaders(ref, cookies)
+        Log.d(TAG, "Headers updated — referer: $ref, cookies: ${cookies?.take(30)}")
+    }
+
     
     // Load initial position from database
     LaunchedEffect(media.id, season, episode) {
@@ -781,6 +700,11 @@ private fun ExoPlayerView(
             val controller = WindowCompat.getInsetsController(w, w.decorView)
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            
+            // Enable drawing behind cutouts (notches)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                w.attributes.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
         
         onDispose {
@@ -798,78 +722,42 @@ private fun ExoPlayerView(
     }
     
     
-    
-    // Apply rotation mode whenever it changes
-    
-    // Update MediaItem when subtitles are detected
-    // Prepare MediaItem with Subtitles
-    var lastMediaItemUri by remember { mutableStateOf<String?>(null) }
-    var lastSubtitleCount by remember { mutableStateOf(0) }
-
-    LaunchedEffect(detectedSubtitles.toList(), streamInfo.streamUrl, isHistoryLoaded) {
+    // --- One-time player setup: set MediaItem and prepare ONCE. ---
+    // Subtitles are handled entirely by SubtitleOverlay (see below) and never
+    // require a player reset. This is the ONLY place prepare() is called.
+    LaunchedEffect(streamInfo.streamUrl, isHistoryLoaded) {
         val player = exoPlayerInstance ?: return@LaunchedEffect
         if (!isHistoryLoaded || streamInfo.streamUrl.isEmpty()) return@LaunchedEffect
+        // Only set MediaItem if the player hasn't been set up yet
+        if (player.mediaItemCount > 0) return@LaunchedEffect
 
-        // Optimization: Avoid resetting if URI and subtitle count haven't changed
-        // This prevents stuttering when the same subtitles are detected multiple times
-        if (lastMediaItemUri == streamInfo.streamUrl && lastSubtitleCount == detectedSubtitles.size) {
-            return@LaunchedEffect
-        }
-        
-        // Small delay to batch multiple subtitle detections
-        if (detectedSubtitles.size > lastSubtitleCount) {
-             delay(800)
-        }
-
-        lastMediaItemUri = streamInfo.streamUrl
-        lastSubtitleCount = detectedSubtitles.size
-        
-        val mediaItemBuilder = ExoMediaItem.Builder()
+        val mediaItem = ExoMediaItem.Builder()
             .setUri(streamInfo.streamUrl)
-        
-        if (detectedSubtitles.isNotEmpty()) {
-            val subtitleConfigs = detectedSubtitles.map { track ->
-                val mimeType = when {
-                    track.url.contains(".vtt") || track.url.contains("format=vtt") -> MimeTypes.TEXT_VTT
-                    track.url.contains(".srt") || track.url.contains("format=srt") -> MimeTypes.APPLICATION_SUBRIP
-                    else -> MimeTypes.TEXT_VTT
+            .apply {
+                val url = streamInfo.streamUrl.lowercase()
+                when {
+                    url.contains(".m3u8") || url.contains("/proxy") -> 
+                        setMimeType(com.google.android.exoplayer2.util.MimeTypes.APPLICATION_M3U8)
+                    url.contains(".mp4") || url.contains("/mp4-proxy") -> 
+                        setMimeType(com.google.android.exoplayer2.util.MimeTypes.VIDEO_MP4)
+                    url.contains(".ts") || url.contains("/ts-proxy") -> 
+                        setMimeType(com.google.android.exoplayer2.util.MimeTypes.VIDEO_MP2T)
                 }
-                
-                ExoMediaItem.SubtitleConfiguration.Builder(Uri.parse(track.url))
-                    .setMimeType(mimeType)
-                    .setLanguage(track.language)
-                    .setLabel(track.label)
-                    .setSelectionFlags(0)
-                    .build()
             }
-            mediaItemBuilder.setSubtitleConfigurations(subtitleConfigs)
-        }
-        
-        val currentPos = player.currentPosition
-        
-        player.setMediaItem(mediaItemBuilder.build())
+            .build()
+
+        player.setMediaItem(mediaItem)
         player.prepare()
-        
-        // Restore position
+
+        // Restore saved watch position (or start from beginning)
         startupPosition?.let { pos ->
             player.seekTo(pos)
             startupPosition = null
-        } ?: player.seekTo(currentPos)
-        
-        player.playWhenReady = true
-
-        // Attempt to restore selected subtitle based on URL/Label
-        if (selectedSubtitleUrl != null) {
-            val matchingTrack = detectedSubtitles.find { it.url == selectedSubtitleUrl }
-            if (matchingTrack != null) {
-                val trackSelector = player.trackSelector as? DefaultTrackSelector
-                trackSelector?.parameters = trackSelector?.buildUponParameters()
-                    ?.setRendererDisabled(getTextRendererIndex(player), false)
-                    ?.setPreferredTextLanguage(matchingTrack.language)
-                    ?.build() ?: return@LaunchedEffect
-            }
         }
+
+        player.playWhenReady = true
     }
+
     
     // Player state listener
     DisposableEffect(exoPlayer) {
@@ -877,7 +765,7 @@ private fun ExoPlayerView(
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     onQualitiesDetected(getAvailableQualities(exoPlayer), exoPlayer)
-                    Log.d(TAG, "Player ready, ${detectedSubtitles.size} subtitles available")
+                    Log.d(TAG, "Player ready")
                 }
                 if (playbackState == Player.STATE_ENDED) {
                     // Check if auto-play next episode is enabled
@@ -994,6 +882,7 @@ private fun ExoPlayerView(
             window = window,
             modifier = Modifier.fillMaxSize()
         )
+
         
         // Double-tap Controls (YouTube-style seek)
         exoPlayerInstance?.let { player ->
@@ -1011,7 +900,6 @@ private fun ExoPlayerView(
                 visible = showControls,
                 onVisibilityChange = { showControls = it },
                 onShowQualityDialog = onShowQualityDialog,
-                onShowSubtitleDialog = onShowSubtitleDialog,
                 onShowSpeedDialog = onShowSpeedDialog,
                 onNextEpisode = onNextEpisode,
                 onBack = {
@@ -1215,196 +1103,7 @@ private data class SeekFeedback(
     val text: String
 )
 
-@Composable
-private fun SubtitleOverlay(cues: List<SubtitleCue>, currentPositionMs: Long) {
-    val activeCue = remember(cues, currentPositionMs) {
-        cues.find { currentPositionMs in it.startTimeMs..it.endTimeMs }
-    }
-    activeCue?.let { cue ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 80.dp, start = 32.dp, end = 32.dp),
-            contentAlignment = Alignment.BottomCenter
-        ) {
-            Text(
-                text = cue.text,
-                color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Medium,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            )
-        }
-    }
-}
-
-data class SubtitleGroup(
-    val languageName: String,
-    val languageCode: String,
-    val options: List<SubtitleTrack>
-)
-
-@Composable
-private fun SubtitleSelectionDialog(
-    tracks: List<SubtitleTrack>,
-    exoPlayer: ExoPlayer?,
-    selectedSubtitleUrl: String?,
-    onSubtitleUrlChange: (String?) -> Unit,
-    onDismiss: () -> Unit
-) {
-    var selectedTrackKey by remember { mutableStateOf<String?>(null) }
-    
-    // Group subtitles by language
-    val groupedSubtitles = remember(tracks) {
-        tracks.groupBy { normalizeLanguageCode(it.language) }
-            .map { (langCode, subtitleList) ->
-                SubtitleGroup(
-                    languageName = getLanguageName(langCode),
-                    languageCode = langCode,
-                    options = subtitleList
-                )
-            }
-            .sortedBy { it.languageName }
-    }
-    
-    // Use event-driven listener instead of polling for better performance
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onTracksChanged(tracks: com.google.android.exoplayer2.Tracks) {
-                // Find selected text track
-                val textTrackGroup = tracks.groups.find { 
-                    it.type == com.google.android.exoplayer2.C.TRACK_TYPE_TEXT && it.isSelected
-                }
-                
-                selectedTrackKey = if (textTrackGroup != null && textTrackGroup.length > 0) {
-                    val format = textTrackGroup.mediaTrackGroup.getFormat(0)
-                    "${format.language}_${format.label}"
-                } else {
-                    null
-                }
-            }
-        }
-        
-        exoPlayer?.addListener(listener)
-        
-        // Initial state
-        exoPlayer?.let { player ->
-            val currentTracks = player.currentTracks
-            val textTrackGroup = currentTracks.groups.find { 
-                it.type == com.google.android.exoplayer2.C.TRACK_TYPE_TEXT && it.isSelected
-            }
-            selectedTrackKey = if (textTrackGroup != null && textTrackGroup.length > 0) {
-                val format = textTrackGroup.mediaTrackGroup.getFormat(0)
-                "${format.language}_${format.label}"
-            } else {
-                null
-            }
-        }
-        
-        onDispose {
-            exoPlayer?.removeListener(listener)
-        }
-    }
-    
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surface) {
-            Column(modifier = Modifier.padding(16.dp).widthIn(max = 300.dp)) {
-                Text("Subtitles (${tracks.size} available)", fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 16.dp))
-                
-                SubtitleOption("Off", selectedTrackKey == null) { 
-                    exoPlayer?.let { player ->
-                        val trackSelector = player.trackSelector as? DefaultTrackSelector
-                        trackSelector?.parameters = trackSelector?.buildUponParameters()
-                            ?.setRendererDisabled(getTextRendererIndex(player), true)
-                            ?.build() ?: return@let
-                        selectedTrackKey = null
-                    }
-                    onDismiss()
-                }
-                
-                if (groupedSubtitles.isNotEmpty()) {
-                    Divider(modifier = Modifier.padding(vertical = 8.dp), color = Color.Gray.copy(alpha = 0.3f))
-                    LazyColumn(modifier = Modifier.heightIn(max = 400.dp)) {
-                        groupedSubtitles.forEach { group ->
-                            item {
-                                // Language header
-                                Text(
-                                    text = group.languageName,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 12.dp)
-                                )
-                            }
-                            
-                            // Options for this language
-                            items(group.options.size) { index ->
-                                val track = group.options[index]
-                                val trackKey = "${track.language}_${track.label}"
-                                SubtitleOption(track.label, selectedTrackKey == trackKey) {
-                                    exoPlayer?.let { player ->
-                                        val trackSelector = player.trackSelector as? DefaultTrackSelector
-                                        
-                                        // Find the actual track group and index for this selection
-                                        val mappedTrackInfo = trackSelector?.currentMappedTrackInfo
-                                        if (mappedTrackInfo != null) {
-                                            val rendererIndex = getTextRendererIndex(player)
-                                            val groups = mappedTrackInfo.getTrackGroups(rendererIndex)
-                                            
-                                            var targetGroupIndex = -1
-                                            var targetTrackIndex = -1
-                                            
-                                            for (i in 0 until groups.length) {
-                                                val group = groups[i]
-                                                for (j in 0 until group.length) {
-                                                    val format = group.getFormat(j)
-                                                    if (format.language == track.language && format.label == track.label) {
-                                                        targetGroupIndex = i
-                                                        targetTrackIndex = j
-                                                        break
-                                                    }
-                                                }
-                                                if (targetGroupIndex != -1) break
-                                            }
-                                            
-                                            if (targetGroupIndex != -1) {
-                                                val override = DefaultTrackSelector.SelectionOverride(targetGroupIndex, targetTrackIndex)
-                                                trackSelector.parameters = trackSelector.buildUponParameters()
-                                                    .setRendererDisabled(rendererIndex, false)
-                                                    .setSelectionOverride(rendererIndex, groups, override)
-                                                    .build()
-                                            } else {
-                                                // Fallback to language-based if exact match failed
-                                                trackSelector.parameters = trackSelector.buildUponParameters()
-                                                    .setRendererDisabled(rendererIndex, false)
-                                                    .setPreferredTextLanguage(track.language)
-                                                    .build()
-                                            }
-                                        }
-                                        
-                                        selectedTrackKey = trackKey
-                                        onSubtitleUrlChange(track.url)
-                                    }
-                                    onDismiss()
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    Text(
-                        "No subtitles detected yet. They may appear as the video loads.",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
-            }
-        }
-    }
-}
+    // Subtitles removed at user request
 
 @Composable
 private fun AudioSelectionDialog(

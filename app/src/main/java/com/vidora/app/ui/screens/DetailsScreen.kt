@@ -65,7 +65,7 @@ fun DetailsScreen(
             ) {
                 Box(modifier = Modifier.fillMaxWidth().height(250.dp)) {
                     AsyncImage(
-                        model = "https://image.tmdb.org/t/p/original${media.backdropPath}",
+                        model = "https://image.tmdb.org/t/p/w780${media.backdropPath}",
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -180,53 +180,7 @@ fun DetailsScreen(
                         }
                     }
                     
-                    // Ratings Row
-                    Row(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        // TMDB Rating
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = "TMDB: ",
-                                fontSize = 13.sp,
-                                color = Color.Gray
-                            )
-                            Text(
-                                text = String.format("%.1f", media.voteAverage),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "/10",
-                                fontSize = 13.sp,
-                                color = Color.Gray
-                            )
-                        }
-                        
-                        // IMDb Rating
-                        uiState.imdbRating?.let { imdbRating ->
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "IMDb: ",
-                                    fontSize = 13.sp,
-                                    color = Color.Gray
-                                )
-                                Text(
-                                    text = imdbRating,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFF5C518) // IMDb yellow
-                                )
-                                Text(
-                                    text = "/10",
-                                    fontSize = 13.sp,
-                                    color = Color.Gray
-                                )
-                            }
-                        }
-                    }
+                    // Ratings removed at user request
                     
                     Spacer(modifier = Modifier.height(8.dp))
                     
@@ -236,15 +190,13 @@ fun DetailsScreen(
                         
                         FilledTonalButton(
                             onClick = {
-                                // Construct URL for resuming
-                                val resumeUrl = if (progress.season != null && progress.episode != null) {
-                                    // TV show - resume specific episode
-                                    "https://flixer.su/watch/tv/${media.id}/${progress.season}/${progress.episode}"
-                                } else {
-                                    // Movie - resume movie
-                                    "https://flixer.su/watch/movie/${media.id}"
-                                }
-                                onWatchClick(media.id, media.realMediaType, resumeUrl)
+                                val url = viewModel.getVidNestUrl(
+                                    media.realMediaType, 
+                                    media.id, 
+                                    progress.season, 
+                                    progress.episode
+                                )
+                                onWatchClick(media.id, media.realMediaType, url)
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -266,15 +218,49 @@ fun DetailsScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
                     
+                    Text(
+                        text = "Stream Server",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val servers = listOf("auto", "hexa", "beta")
+                            
+                        servers.forEach { server ->
+                            val isSelected = uiState.selectedServer == server
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.updateServer(server) },
+                                label = { 
+                                    Text(
+                                        text = server.uppercase(),
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                    ) 
+                                },
+                                modifier = Modifier.weight(1f),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                    selectedLabelColor = Color.Black
+                                )
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
                     Button(
                         onClick = {
                             if (media.realMediaType == "movie") {
                                 viewModel.markWatched(media)
                             }
-                            val finalUrl = when {
-                                media.realMediaType == "tv" -> "https://flixer.su/watch/tv/${media.id}/1/1"
-                                else -> "https://flixer.su/watch/movie/${media.id}"
-                            }
+                            val finalUrl = viewModel.getVidNestUrl(media.realMediaType, media.id)
                             onWatchClick(media.id, media.realMediaType, finalUrl)
                         },
                         modifier = Modifier.fillMaxWidth(),
@@ -282,7 +268,10 @@ fun DetailsScreen(
                     ) {
                         Icon(Icons.Filled.PlayArrow, contentDescription = null)
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Watch Now", fontWeight = FontWeight.Bold)
+                        Text(
+                            text = if (uiState.selectedServer == "auto") "Watch Now (Auto)" else "Watch on ${uiState.selectedServer.uppercase()}", 
+                            fontWeight = FontWeight.Bold
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -411,7 +400,12 @@ fun DetailsScreen(
                                     isWatched = isWatched
                                 ) {
                                     viewModel.markWatched(media, episode.seasonNumber, episode.episodeNumber)
-                                    val episodeUrl = "https://flixer.su/watch/tv/${media.id}/${episode.seasonNumber}/${episode.episodeNumber}"
+                                    val episodeUrl = viewModel.getVidNestUrl(
+                                        type = "tv", 
+                                        id = media.id, 
+                                        season = episode.seasonNumber, 
+                                        episode = episode.episodeNumber
+                                    )
                                     onWatchClick(media.id, "tv", episodeUrl)
                                 }
                             }
@@ -526,7 +520,7 @@ fun EpisodeItem(
     ) {
         Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
-                model = "https://image.tmdb.org/t/p/w500${episode.stillPath}",
+                model = "https://image.tmdb.org/t/p/w185${episode.stillPath}",
                 contentDescription = null,
                 modifier = Modifier.width(100.dp).height(60.dp),
                 contentScale = ContentScale.Crop

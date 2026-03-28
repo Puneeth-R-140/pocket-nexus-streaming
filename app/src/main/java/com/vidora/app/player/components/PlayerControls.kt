@@ -28,7 +28,6 @@ fun CustomPlayerControls(
     visible: Boolean,
     onVisibilityChange: (Boolean) -> Unit,
     onShowQualityDialog: () -> Unit,
-    onShowSubtitleDialog: () -> Unit,
     onShowSpeedDialog: () -> Unit,
     onNextEpisode: (() -> Unit)? = null,
     onBack: () -> Unit,
@@ -127,7 +126,6 @@ fun CustomPlayerControls(
                         player.seekTo(position)
                     },
                     onShowQualityDialog = onShowQualityDialog,
-                    onShowSubtitleDialog = onShowSubtitleDialog,
                     onShowSpeedDialog = onShowSpeedDialog,
                     onNextEpisode = onNextEpisode,
                     modifier = Modifier
@@ -192,7 +190,6 @@ private fun BottomControls(
     onPlayPause: () -> Unit,
     onSeek: (Long) -> Unit,
     onShowQualityDialog: () -> Unit,
-    onShowSubtitleDialog: () -> Unit,
     onShowSpeedDialog: () -> Unit,
     onNextEpisode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -276,17 +273,6 @@ private fun BottomControls(
                         modifier = Modifier.size(24.dp)
                     )
                 }
-                
-                // Subtitle button
-                IconButton(onClick = onShowSubtitleDialog) {
-                    Icon(
-                        imageVector = Icons.Default.Subtitles,
-                        contentDescription = "Subtitles",
-                        tint = Color.White,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-                
                 
                 // Speed button
                 IconButton(onClick = onShowSpeedDialog) {

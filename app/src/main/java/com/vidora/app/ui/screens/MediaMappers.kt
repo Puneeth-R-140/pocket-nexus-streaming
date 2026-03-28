@@ -7,8 +7,8 @@ import com.vidora.app.data.remote.MediaItem
 fun FavoriteEntity.toMediaItem(): MediaItem {
     return MediaItem(
         id = id,
-        title = title,
-        name = null,
+        title = if (mediaType == "movie") title else null,
+        name = if (mediaType == "tv") title else null,
         overview = null,
         posterPath = posterPath,
         backdropPath = null,
@@ -24,6 +24,7 @@ fun FavoriteEntity.toMediaItem(): MediaItem {
         seasons = null,
         runtime = null,
         episodeRunTime = null,
+        genreIds = null,
         imdbId = null,
         contentRatings = null
     )
@@ -32,8 +33,8 @@ fun FavoriteEntity.toMediaItem(): MediaItem {
 fun HistoryEntity.toMediaItem(): MediaItem {
     return MediaItem(
         id = id,
-        title = title,
-        name = null,
+        title = if (mediaType == "movie") title else null,
+        name = if (mediaType == "tv") title else null,
         overview = null,
         posterPath = posterPath,
         backdropPath = null,
@@ -49,6 +50,7 @@ fun HistoryEntity.toMediaItem(): MediaItem {
         seasons = null,
         runtime = null,
         episodeRunTime = null,
+        genreIds = null,
         imdbId = null,
         contentRatings = null
     )

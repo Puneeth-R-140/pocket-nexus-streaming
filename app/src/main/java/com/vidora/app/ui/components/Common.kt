@@ -85,7 +85,7 @@ fun MediaCard(
             Box {
                 val context = LocalContext.current
                 val posterUrl = if (item.posterPath != null) {
-                    "https://image.tmdb.org/t/p/w500${item.posterPath}"
+                    "https://image.tmdb.org/t/p/w185${item.posterPath}"
                 } else null
                 
                 val imageRequest = remember(posterUrl) {
@@ -103,7 +103,7 @@ fun MediaCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(200.dp)
-                        .shimmerEffect(), // Placeholder while loading
+                        .background(Color.DarkGray.copy(alpha = 0.5f)),
                     contentScale = ContentScale.Crop
                 )
                 
@@ -140,7 +140,8 @@ fun MediaCard(
                 fontSize = 12.sp,
                 maxLines = 1,
                 modifier = Modifier.padding(8.dp),
-                color = Color.White
+                color = Color.White,
+                fontWeight = FontWeight.Medium
             )
         }
     }

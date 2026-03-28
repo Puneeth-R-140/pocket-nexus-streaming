@@ -20,7 +20,6 @@ data class HomeUiState(
     val comedyMovies: List<MediaItem> = emptyList(),
     val scifiMovies: List<MediaItem> = emptyList(),
     val dramaShows: List<MediaItem> = emptyList(),
-    val animationShows: List<MediaItem> = emptyList(),
     val documentaries: List<MediaItem> = emptyList(),
     val favorites: List<com.vidora.app.data.local.FavoriteEntity> = emptyList(),
     val history: List<com.vidora.app.data.local.HistoryEntity> = emptyList(),
@@ -68,14 +67,22 @@ class HomeViewModel @Inject constructor(
 
         _uiState.update { it.copy(isLoading = true, error = null) }
         
-        loadSection("Trending Movies") { repository.getTrendingMovies() }
-        loadSection("Popular TV") { repository.getTrendingTVShows() }
-        loadSection("Action") { repository.getMoviesByGenre("28") }
-        loadSection("Comedy") { repository.getMoviesByGenre("35") }
-        loadSection("Sci-Fi") { repository.getMoviesByGenre("878") }
-        loadSection("Drama") { repository.getTvShowsByGenre("18") }
-        loadSection("Animation") { repository.getTvShowsByGenre("16") }
-        loadSection("Documentaries") { repository.getTvShowsByGenre("99") }
+        // Prioritize immediately visible content
+        viewModelScope.launch {
+            loadSection("Trending Movies") { repository.getTrendingMovies() }
+            loadSection("Popular TV") { repository.getTrendingTVShows() }
+            
+            // Stagger remaining sections to prevent request flooding on 4G
+            kotlinx.coroutines.delay(800)
+            loadSection("Action") { repository.getMoviesByGenre("28") }
+            loadSection("Comedy") { repository.getMoviesByGenre("35") }
+            
+            kotlinx.coroutines.delay(800)
+            loadSection("Sci-Fi") { repository.getMoviesByGenre("878") }
+            loadSection("Drama") { repository.getTvShowsByGenre("18") }
+            
+            loadSection("Documentaries") { repository.getTvShowsByGenre("99") }
+        }
     }
 
     private fun loadSection(name: String, flowProvider: () -> Flow<NetworkResult<List<MediaItem>>>) {
@@ -91,7 +98,6 @@ class HomeViewModel @Inject constructor(
                                 "Comedy" -> state.copy(comedyMovies = result.data)
                                 "Sci-Fi" -> state.copy(scifiMovies = result.data)
                                 "Drama" -> state.copy(dramaShows = result.data)
-                                "Animation" -> state.copy(animationShows = result.data)
                                 "Documentaries" -> state.copy(documentaries = result.data)
                                 else -> state
                             }
@@ -118,52 +124,4 @@ class HomeViewModel @Inject constructor(
     }
 }
 
-fun FavoriteEntity.toMediaItem(): MediaItem {
-    return MediaItem(
-        id = id,
-        title = title,
-        name = null,
-        overview = null,
-        posterPath = posterPath,
-        backdropPath = null,
-        voteAverage = 0.0,
-        releaseDate = null,
-        firstAirDate = null,
-        mediaType = mediaType,
-        popularity = null,
-        genres = null,
-        credits = null,
-        similar = null,
-        numberOfSeasons = null,
-        seasons = null,
-        runtime = null,
-        episodeRunTime = null,
-        imdbId = null,
-        contentRatings = null
-    )
-}
-
-fun HistoryEntity.toMediaItem(): MediaItem {
-    return MediaItem(
-        id = mediaId,
-        title = if (mediaType == "movie") title else null,
-        name = if (mediaType == "tv") title else null,
-        overview = null,
-        posterPath = posterPath,
-        backdropPath = null,
-        voteAverage = 0.0,
-        releaseDate = null,
-        firstAirDate = null,
-        mediaType = mediaType,
-        popularity = null,
-        genres = null,
-        credits = null,
-        similar = null,
-        numberOfSeasons = null,
-        seasons = null,
-        runtime = null,
-        episodeRunTime = null,
-        imdbId = null,
-        contentRatings = null
-    )
-}
+// Extension functions moved to MediaMappers.kt

@@ -2,6 +2,9 @@ package com.vidora.app.data.remote
 
 import com.google.gson.annotations.SerializedName
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class TmdbResponse<T>(
     @SerializedName("results") val results: List<T>,
     @SerializedName("total_results") val totalResults: Int,
@@ -9,6 +12,7 @@ data class TmdbResponse<T>(
     @SerializedName("page") val page: Int
 )
 
+@Immutable
 data class MediaItem(
     @SerializedName("id") val id: String,
     @SerializedName("title") val title: String?,
@@ -28,9 +32,11 @@ data class MediaItem(
     @SerializedName("seasons") val seasons: List<Season>?,
     @SerializedName("runtime") val runtime: Int?,
     @SerializedName("episode_run_time") val episodeRunTime: List<Int>?,
+    @SerializedName("genre_ids") val genreIds: List<Int>?,
     @SerializedName("imdb_id") val imdbId: String?,
     @SerializedName("content_ratings") val contentRatings: ContentRatings?
-) {
+)
+ {
     val displayTitle: String get() = title ?: name ?: "Unknown"
     val realMediaType: String get() = mediaType ?: if (title != null) "movie" else "tv"
     val totalSeasons: Int get() = numberOfSeasons ?: seasons?.size ?: 1
@@ -38,21 +44,25 @@ data class MediaItem(
     val releaseYear: String? get() = (releaseDate ?: firstAirDate)?.take(4)
 }
 
+@Immutable
 data class Season(
     @SerializedName("id") val id: Int,
     @SerializedName("season_number") val seasonNumber: Int,
     @SerializedName("episode_count") val episodeCount: Int?
 )
 
+@Immutable
 data class Genre(
     @SerializedName("id") val id: Int,
     @SerializedName("name") val name: String
 )
 
+@Immutable
 data class Credits(
     @SerializedName("cast") val cast: List<CastMember>
 )
 
+@Immutable
 data class CastMember(
     @SerializedName("id") val id: Int,
     @SerializedName("name") val name: String,
@@ -60,6 +70,7 @@ data class CastMember(
     @SerializedName("profile_path") val profilePath: String?
 )
 
+@Immutable
 data class Episode(
     @SerializedName("id") val id: Int,
     @SerializedName("name") val name: String,

@@ -10,54 +10,74 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.vidora.app.data.remote.toMediaItem
+import com.vidora.app.data.remote.toEpisode
+import com.vidora.app.data.remote.ImdbApiService
 
 @Singleton
 class MediaRepository @Inject constructor(
     private val tmdbService: TmdbService,
-    private val subtitleService: com.vidora.app.data.remote.SubtitleService,
-    private val omdbService: com.vidora.app.data.remote.OmdbService,
+    private val imdbApiService: ImdbApiService,
     private val mediaDao: MediaDao
 ) {
     private val gson = com.google.gson.Gson()
 
     fun getTrendingMovies(): Flow<NetworkResult<List<MediaItem>>> = flow {
         emit(getCachedOrDefault("trending_movies"))
-        val result = retryApiCall {
+        var result = retryApiCall {
             safeApiCall {
                 val response = tmdbService.getTrending("movie")
-                response.results.also { cacheSection("trending_movies", it) }
+                response.results.filter { it.genreIds?.contains(16) != true }.also { cacheSection("trending_movies", it) }
             }
         }
-        if (result is NetworkResult.Success) emit(result)
+        if (result is NetworkResult.Error) {
+            result = safeApiCall {
+                imdbApiService.listTitles(type = "MOVIE").results?.filter { 
+                    it.genres?.any { g -> g.contains("Animation", ignoreCase = true) } != true 
+                }?.map { it.toMediaItem() } ?: emptyList()
+            }
+        }
+        emit(result)
     }
 
     fun getTrendingTVShows(): Flow<NetworkResult<List<MediaItem>>> = flow {
         emit(getCachedOrDefault("trending_tv"))
-        val result = retryApiCall {
+        var result = retryApiCall {
             safeApiCall {
                 val response = tmdbService.getTrending("tv")
-                response.results.also { cacheSection("trending_tv", it) }
+                response.results.filter { it.genreIds?.contains(16) != true }.also { cacheSection("trending_tv", it) }
             }
         }
-        if (result is NetworkResult.Success) emit(result)
+        if (result is NetworkResult.Error) {
+            result = safeApiCall {
+                imdbApiService.listTitles(type = "TV_SERIES").results?.filter { 
+                    it.genres?.any { g -> g.contains("Animation", ignoreCase = true) } != true 
+                }?.map { it.toMediaItem() } ?: emptyList()
+            }
+        }
+        emit(result)
     }
 
     fun getMoviesByGenre(genreId: String): Flow<NetworkResult<List<MediaItem>>> = flow {
         emit(getCachedOrDefault("movies_genre_$genreId"))
-        val result = safeApiCall {
-            val response = tmdbService.discoverMovie(genreId)
-            response.results.also { cacheSection("movies_genre_$genreId", it) }
+        val result = retryApiCall {
+            safeApiCall {
+                val response = tmdbService.discoverMovie(genreId)
+                response.results.filter { it.genreIds?.contains(16) != true }.also { cacheSection("movies_genre_$genreId", it) }
+            }
         }
-        if (result is NetworkResult.Success) emit(result)
+        emit(result)
     }
 
     fun getTvShowsByGenre(genreId: String): Flow<NetworkResult<List<MediaItem>>> = flow {
         emit(getCachedOrDefault("tv_genre_$genreId"))
-        val result = safeApiCall {
-            val response = tmdbService.discoverTv(genreId)
-            response.results.also { cacheSection("tv_genre_$genreId", it) }
+        val result = retryApiCall {
+            safeApiCall {
+                val response = tmdbService.discoverTv(genreId)
+                response.results.filter { it.genreIds?.contains(16) != true }.also { cacheSection("tv_genre_$genreId", it) }
+            }
         }
-        if (result is NetworkResult.Success) emit(result)
+        emit(result)
     }
 
     private suspend fun getCachedOrDefault(sectionId: String): NetworkResult<List<MediaItem>> {
@@ -66,7 +86,7 @@ class MediaRepository @Inject constructor(
             if (cached != null) {
                 val type = object : com.google.gson.reflect.TypeToken<List<MediaItem>>() {}.type
                 val items: List<MediaItem> = gson.fromJson(cached.data, type)
-                NetworkResult.Success(items)
+                NetworkResult.Success<List<MediaItem>>(items)
             } else {
                 NetworkResult.Loading
             }
@@ -86,18 +106,43 @@ class MediaRepository @Inject constructor(
 
     fun search(query: String): Flow<NetworkResult<List<MediaItem>>> = flow {
         emit(NetworkResult.Loading)
-        val result = safeApiCall {
+        var result = safeApiCall {
             val response = tmdbService.searchMulti(query)
-            response.results.filter { it.mediaType == "movie" || it.mediaType == "tv" }
+            response.results.filter { 
+                (it.mediaType == "movie" || it.mediaType == "tv") && 
+                it.genreIds?.contains(16) != true 
+            }
+        }
+        if (result is NetworkResult.Error) {
+            result = safeApiCall {
+                // Try searchTitles first
+                val searchResponse = imdbApiService.searchTitles(query)
+                val titles = searchResponse.titles ?: searchResponse.results ?: emptyList()
+                titles.filter { 
+                    it.genres?.any { g -> g.contains("Animation", ignoreCase = true) } != true 
+                }.map { it.toMediaItem() }
+            }
         }
         emit(result)
     }
 
     fun getDetails(mediaType: String, id: String): Flow<NetworkResult<MediaItem>> = flow {
         emit(NetworkResult.Loading)
-        val result = retryApiCall {
+        val tmdbType = mediaType
+        
+        var result: NetworkResult<MediaItem> = retryApiCall {
             safeApiCall {
-                tmdbService.getDetails(mediaType, id)
+                tmdbService.getDetails(tmdbType, id)
+            }
+        }
+
+        // Fallback to IMDb if TMDB fails or if the ID looks like an IMDb ID
+        if (result is NetworkResult.Error || id.startsWith("tt")) {
+            val imdbResult = safeApiCall {
+                imdbApiService.getTitle(id).toMediaItem()
+            }
+            if (imdbResult is NetworkResult.Success<*>) {
+                result = imdbResult as NetworkResult<MediaItem>
             }
         }
         emit(result)
@@ -105,8 +150,16 @@ class MediaRepository @Inject constructor(
 
     fun getEpisodes(tvId: String, season: Int): Flow<NetworkResult<List<com.vidora.app.data.remote.Episode>>> = flow {
         emit(NetworkResult.Loading)
-        val result = safeApiCall {
+        var result = safeApiCall {
             tmdbService.getSeasonEpisodes(tvId, season).episodes
+        }
+        if (result is NetworkResult.Error || tvId.startsWith("tt")) {
+            val imdbResult = safeApiCall {
+                imdbApiService.getEpisodes(tvId, season.toString()).episodes.map { it.toEpisode() }
+            }
+            if (imdbResult is NetworkResult.Success<*>) {
+                result = imdbResult as NetworkResult<List<com.vidora.app.data.remote.Episode>>
+            }
         }
         emit(result)
     }
@@ -119,17 +172,7 @@ class MediaRepository @Inject constructor(
         emit(result)
     }
 
-    suspend fun getSubtitles(tmdbId: String, mediaType: String, season: Int? = null, episode: Int? = null): List<com.vidora.app.data.remote.SubtitleItem> {
-        return try {
-            if (mediaType == "tv" && season != null && episode != null) {
-                subtitleService.searchSubtitles(tmdbId, season, episode)
-            } else {
-                subtitleService.searchSubtitles(tmdbId)
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
+    // Subtitles removed at user request
 
     // Local Favorites
     fun getFavorites() = mediaDao.getAllFavorites()
@@ -189,22 +232,8 @@ class MediaRepository @Inject constructor(
             )
         )
     }
-    
-    // IMDb & Rotten Tomatoes Ratings
-    suspend fun getRatings(imdbId: String): com.vidora.app.data.remote.OmdbResponse? {
-        return try {
-            safeApiCall {
-                omdbService.getRatings(imdbId, "8e11dbab") // Free API key
-            }.let { result ->
-                when (result) {
-                    is NetworkResult.Success -> result.data
-                    else -> null
-                }
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
+
+    // Ratings removed at user request
     
     // Downloads
     fun getAllDownloads() = mediaDao.getAllDownloads()
